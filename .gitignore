@@ -1,0 +1,9 @@
+archive/
+config.ini
+email.html
+rtf.txt
+test.html
+tmp.txt
+dblog.txt
+*.pyc
+*.db
