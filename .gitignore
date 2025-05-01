@@ -7,3 +7,4 @@ tmp.txt
 dblog.txt
 *.pyc
 *.db
+*.csv
