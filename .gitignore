@@ -8,3 +8,4 @@ dblog.txt
 *.pyc
 *.db
 *.csv
+*.log
