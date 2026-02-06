@@ -6,6 +6,7 @@ import os
 import sqlite3
 import datetime
 import dateutil.relativedelta
+import sys
 
 class DBTables:
     tasks = 'tasks'
@@ -16,6 +17,10 @@ class DBTables:
     config_columns = 'mailto TEXT, subject TEXT, footer TEXT, signature TEXT'
 
 class Install(windows.Window):
+    def __init__(self, row, col, length, width):
+        super().__init__(row, col, length, width)
+        self.bar = windows.Bar(30)
+
     def verify(self):
         try:
             Manager.start()
@@ -31,33 +36,33 @@ class Install(windows.Window):
         if not Database.checktable(DBTables.tags):
             Database.createtable(DBTables.tags, DBTables.tags_columns)
     
+    def step(self, func, msg):
+        windows.Logger.log(f'Install step: {msg}')
+        self.win.addstr(4, 1, ' '*50)
+        self.win.addstr(4, 1, msg)
+        if func:
+            func()
+        else:
+            windows.Logger.log(f'Install step: {func} is null')
+        self.win.addstr(5, 1, self.bar.update(60))
+        self.win.noutrefresh()
+        curses.doupdate()
+        curses.napms(1000)
+    
     def setup(self):
-        bar = windows.Bar(30)
         self.win.addstr(0, 0, 'TINTASK IS INSTALLING...')
-        self.win.addstr(5, 1, bar.update(0))
+        self.win.addstr(5, 1, self.bar.update(0))
         self.win.noutrefresh()
         curses.doupdate()
         curses.napms(1000)
         try:
-            self.win.addstr(4, 1, ' '*50)
-            self.win.addstr(4, 1, 'Creating storage space...')
-            Database.connect()
-            self.win.addstr(5, 1, bar.update(60))
-            self.win.noutrefresh()
-            curses.doupdate()
-            curses.napms(1000)
-            self.win.addstr(4, 1, ' '*50)
-            self.win.addstr(4, 1, 'Making tables...')
-            self.setuptables()
-            self.win.addstr(5, 1, bar.update(90))
-            self.win.noutrefresh()
-            curses.doupdate()
-            curses.napms(1000)
+            self.step(Database.connect, 'Creating storage space...')
+            self.step(self.setuptables, 'Making tables...')
             self.win.addstr(4, 1, ' '*50)
             self.win.addstr(4, 1, 'Final check...')
             if not Database.sanitycheck():
                 raise Exception('Database tables could not be created!')
-            self.win.addstr(5, 1, bar.update(100))
+            self.win.addstr(5, 1, self.bar.update(100))
             self.win.addstr(4, 1, ' '*50)
             self.win.addstr(4, 1, 'Done!')
             self.win.noutrefresh()
@@ -129,7 +134,11 @@ class Database:
     @staticmethod
     def getdbpath():
         home = os.path.expanduser('~')
-        return os.path.join(home, '.local', 'share', 'tintask', 'tintask.db')
+        if sys.platform == 'win32':
+            return os.path.join(home, os.environ['LOCALAPPDATA'], 'TinTask', 'tintask.db')
+            #return os.path.join(home, 'TinTask', 'tintask.db')
+        else:
+            return os.path.join(home, '.local', 'share', 'tintask', 'tintask.db')
 
     @staticmethod
     def connect():
@@ -137,7 +146,14 @@ class Database:
             dbfile = Database.getdbpath()
             Database.dbfile = os.path.expanduser(dbfile)
             if not os.path.exists(Database.dbfile):
+                windows.Logger.log(f'Making folders for database - {Database.dbfile}')
                 os.makedirs(os.path.dirname(Database.dbfile))
+            else:
+                windows.Logger.log(f'Database exists')
+        except Exception as e:
+            windows.Logger.log(f'Database creation error: {e}')
+            raise Exception(e)
+        try:
             windows.Logger.log(f'Connecting to "{Database.dbfile}"')
             Database.dbcon = sqlite3.connect(Database.dbfile)
             Database.dbcursor = Database.dbcon.cursor()
