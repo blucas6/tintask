@@ -329,15 +329,14 @@ class Manager:
 
 class SideMenu(windows.Window):
     def wrap(self, tab, task):
-        width = self.width - self.col
-        cutat = width-tab
+        cutat = self.width-tab
         newtask = task[:cutat]
         am = 0
         while True:
-            end = cutat + width
+            end = cutat + self.width
             if end < len(task):
                 newtask += '\n' + task[cutat:end]
-                cutat += width
+                cutat += self.width
                 am += 1
             else:
                 extra = task[cutat:]
@@ -364,15 +363,14 @@ class SideMenu(windows.Window):
         elif self.mode == 'calendar':
             er,ec = self.tab('Report', False, (0,0))
             _,_ = self.tab('Calendar', True, (er,ec))
-        self.win.addstr(1, 0, '-'*(self.width-self.col))
+        self.win.addstr(1, 0, '-'*(self.width-1))
     
     def report(self):
-        width = self.width-self.col
         start,end = Manager.getweek(Manager.viewingdate)
         start = Manager.datetobriefformat(start)
         end = Manager.datetobriefformat(end)
         weekmark = f'{start} - {end}'
-        self.win.addstr(2, width-len(weekmark), weekmark, curses.A_REVERSE)
+        self.win.addstr(2, self.width-len(weekmark)-5, weekmark, curses.A_REVERSE)
         tasks = Manager.getreport(Manager.viewingdate)
         daterow = 3
         for date, vals in tasks.items():
@@ -407,11 +405,10 @@ class SideMenu(windows.Window):
         colspace = 2
         rowspace = 1
         maxrow = self.length-2
-        maxcol = self.width-self.col
         currentmonth = Manager.viewingdate
         calendar = windows.mycalendar(currentmonth)
         pts = []
-        colpts = math.floor(maxcol / (calendar.width+colspace))
+        colpts = math.floor(self.width / (calendar.width+colspace))
         rowpts = math.floor(maxrow / (calendar.length+rowspace))
         for _ in range(rowpts):
             for _ in range(colpts):
@@ -439,13 +436,13 @@ class SideMenu(windows.Window):
         return lookup
 
     def footer(self, increment='week'):
-        width = self.width - self.col
-        self.win.addstr(self.length-1, 0, '-'*width)
+        self.win.addstr(self.length-1, 0, '-'*(self.width-1))
         self.win.addstr(self.length-2, 0, '< ')
         self.win.addstr(self.length-2, 2, 'P', curses.A_BOLD | curses.A_UNDERLINE)
         self.win.addstr(self.length-2, 3, f'revious {increment}')
-        self.win.addstr(self.length-2, width-11, 'N', curses.A_BOLD | curses.A_UNDERLINE)
-        self.win.addstr(self.length-2, width-10, f'ext {increment}>')
+        msg = f'ext {increment} >'
+        self.win.addstr(self.length-2, self.width-1-len(msg)-1, 'N', curses.A_BOLD | curses.A_UNDERLINE)
+        self.win.addstr(self.length-2, self.width-1-len(msg), msg)
 
     def draw(self):
         self.menu()
@@ -569,10 +566,10 @@ class EditTask(windows.Window):
             return
         selection = choices[choice]
         if delete:
-            StatusBar.update(1, 'Deleting tasks from database...')
+            StatusBar.update(10, 'Deleting tasks from database...')
             curses.napms(100)
             Manager.deletetasks(Manager.viewingdate, selection)
-            StatusBar.update(10)
+            StatusBar.update(100)
             curses.napms(100)
         else:
             tasks = Manager.gettasks(Manager.viewingdate, selection)
@@ -611,12 +608,12 @@ class EditTask(windows.Window):
                                   text, double=True)
             text = edit.gettext()
             if text and not edit.cancelled:
-                StatusBar.update(1, 'Updating tasks in database...')
+                StatusBar.update(10, 'Updating tasks in database...')
                 curses.napms(100)
                 Manager.deletetasks(Manager.viewingdate, selection, tagtoedit)
                 tasks = text.split('-')
                 Manager.addtasks(Manager.viewingdate, selection, tasks, tagtoedit)
-                StatusBar.update(10)
+                StatusBar.update(100)
                 curses.napms(100)
         self.done = True
 
@@ -647,8 +644,14 @@ class TinTask(windows.Window):
         if ch == ord('q'):
             raise SystemExit
         elif ch == ord('a'):
-            return AddTask(self.erow, 0, self.length, self.width), windows.Waction.PUSH
+            return AddTask(self.erow,
+                           0,
+                           self.length-self.erow,
+                           self.width), windows.Waction.PUSH
         elif ch == ord('e'):
-            return EditTask(self.erow, 0, self.length, self.width), windows.Waction.PUSH
+            return EditTask(self.erow,
+                            0,
+                            self.length-self.erow,
+                            self.width), windows.Waction.PUSH
         return None, None
 

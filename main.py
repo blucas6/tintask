@@ -1,15 +1,3 @@
-'''
-from colorama import just_fix_windows_console
-
-from statusReporter import Script
-
-just_fix_windows_console()
-
-if __name__ == "__main__":
-    s = Script.Script()
-    s.main()
-    '''
-
 import curses
 import engine
 import sys
@@ -24,4 +12,6 @@ if __name__ == '__main__':
         print('done!')
         print()
     else:
+        if sys.platform == 'win32':
+            os.environ['ESCDELAY'] = '25'
         curses.wrapper(engine.Engine.run)

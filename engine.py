@@ -1,10 +1,9 @@
 import curses
 import tintask
 import windows
+import sys
 
 class Engine:
-    TERMROWS = 0
-    TERMCOLS = 0
     winstack = []
     modals = []
     name = ''
@@ -23,18 +22,21 @@ class Engine:
 
     @staticmethod
     def setup(stdscr):
-        end_column = round(Engine.TERMCOLS/2)
+        end_column = round(curses.COLS/2)
         minimum_columns = 40
         if end_column < minimum_columns:
             end_column = minimum_columns
         else:
-            sidemenu = tintask.SideMenu(0, end_column+1, Engine.TERMROWS-1, Engine.TERMCOLS-1)
+            sidemenu = tintask.SideMenu(0,
+                                        end_column+1,
+                                        curses.LINES-1,
+                                        curses.COLS-end_column-1)
             sidemenu.mode = 'report'
             Engine.winstack.append(sidemenu)
-        main = tintask.TinTask(0, 0, Engine.TERMROWS-5, end_column)
-        tintask.StatusBar.setup(Engine.TERMROWS-1, Engine.TERMCOLS-1, stdscr)
+        main = tintask.TinTask(0, 0, curses.LINES-1, end_column)
+        tintask.StatusBar.setup(curses.LINES-1, curses.COLS-1, stdscr)
         Engine.winstack.append(main)
-        install = tintask.Install(0, 0, Engine.TERMROWS, Engine.TERMCOLS)
+        install = tintask.Install(0, 0, curses.LINES, curses.COLS)
         if not install.verify():
             install.setup()
             #Engine.modals.append(install)
@@ -42,12 +44,11 @@ class Engine:
     @staticmethod
     def run(stdscr):
         windows.Logger.init()
-        curses.set_escdelay(25)
+        if sys.platform != 'win32':
+            curses.set_escdelay(25)
         curses.curs_set(0)
-        curses.ESCDELAY = 0 
         stdscr.keypad(True)
-        Engine.TERMROWS, Engine.TERMCOLS = stdscr.getmaxyx()
-        windows.Logger.log(f'Terminal size [{Engine.TERMROWS},{Engine.TERMCOLS}]')
+        windows.Logger.log(f'Terminal size [{curses.LINES},{curses.COLS}]')
         stdscr.refresh()
         try:
             Engine.setup(stdscr)

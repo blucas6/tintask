@@ -133,11 +133,17 @@ class Window:
         self.col = col
         self.length = length
         self.width = width
-        self.win = curses.newwin(self.length, self.width, self.row, self.col)
         self.erow = 0
         self.ecol = 0
         self.mode = None
-        Logger.log(f'{self}: {self.row} {self.col} {self.length} {self.width}')
+        try:
+            self.win = curses.newwin(self.length, self.width, self.row, self.col)
+        except Exception as e:
+            self.win = None
+            Logger.log(f'ERROR: {self} failed to create window! [{self.row} {self.col} {self.length} {self.width}] -> {e}')
+        Logger.log(f'{self}:')
+        Logger.log(f'\tRows: {self.length} Cols: {self.width}')
+        Logger.log(f'\tStartR: {self.row} StartC: {self.col}')
 
     def draw(self):
         pass
