@@ -550,7 +550,7 @@ class AddTask(windows.Window):
         while True:
             self.win.addstr(row, tab, '> ')
             self.win.noutrefresh()
-            edit = windows.Editor(self.length-row, self.width-col, (self.row+row,self.col+col))
+            edit = windows.Editor(self.length, self.width-col, (self.row+row,self.col+col))
             task = edit.gettext()
             if task:
                 tasks.append(task)
@@ -566,7 +566,7 @@ class AddTask(windows.Window):
             self.win.addstr(row+1, tab, '>')
             self.win.noutrefresh()
             row += 1
-            edit = windows.Editor(self.length-row, self.width-col, (self.row+row,self.col+col))
+            edit = windows.Editor(self.length, self.width-col, (self.row+row,self.col+col))
             tag = edit.gettext()
             if not tag:
                 tag = ''
@@ -621,7 +621,7 @@ class EditTask(windows.Window):
             self.win.addstr(row+2, tab, '> ')
             self.win.noutrefresh()
             row += 2
-            edit = windows.Editor(self.length-row, self.width-col, (self.row+row,self.col+col))
+            edit = windows.Editor(self.length, self.width-col, (self.row+row,self.col+col))
             tagtoedit = edit.gettext()
             if edit.cancelled:
                 self.done = True
@@ -641,7 +641,7 @@ class EditTask(windows.Window):
             self.win.addstr(row+1, tab, '> ')
             row += 1
             self.win.noutrefresh()
-            edit = windows.Editor(self.length-row, self.width-col, (self.row+row,self.col+col),
+            edit = windows.Editor(self.length, self.width-col, (self.row+row,self.col+col),
                                   text, double=True)
             text = edit.gettext()
             if text and not edit.cancelled:
@@ -688,7 +688,6 @@ class TinTask(windows.Window):
         elif ch == ord('e'):
             return EditTask(self.erow,
                             0,
-                            self.length-self.erow,
-                            self.width), windows.Waction.PUSH
+                            self.length-self.erow, self.width), windows.Waction.PUSH
         return None, None
 

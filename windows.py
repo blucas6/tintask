@@ -123,6 +123,8 @@ class Editor:
         curses.curs_set(1)
         win = curses.newwin(self.rows, self.cols, self.pos[0], self.pos[1])
         if self.msg:
+            Logger.log(f'window: [{self.pos} {self.rows} {self.cols}]')
+            Logger.log(f'max chars: {self.maxchars}')
             win.addstr(0, 0, self.msg[:self.maxchars])
         box = curses.textpad.Textbox(win)
         text = box.edit(self.validator).strip()
