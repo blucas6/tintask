@@ -356,13 +356,15 @@ class SideMenu(windows.Window):
         while True:
             end = cutat + self.width
             if end < len(task):
-                newtask += '\n' + task[cutat:end]
+                #newtask += '\n' + task[cutat:end]
+                newtask += task[cutat:end]
                 cutat += self.width
                 am += 1
             else:
                 extra = task[cutat:]
                 if extra:
-                    newtask += '\n' + extra
+                    #newtask += '\n' + extra
+                    newtask += extra
                     am += 1
                 break
         return newtask, am
