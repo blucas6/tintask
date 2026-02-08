@@ -344,6 +344,11 @@ class Manager:
         return start, end
 
 class SideMenu(windows.Window):
+    def __init__(self, row, col, length, width):
+        super().__init__(row, col, length, width)
+        self.filtering = False
+        self.filter = ''
+
     def wrap(self, tab, task):
         cutat = self.width-tab
         newtask = task[:cutat]
@@ -416,7 +421,17 @@ class SideMenu(windows.Window):
                     daterow += trow + tagrow
 
     def calendar(self):
-        row = 2
+        self.win.addstr(2, 2, 'F', curses.A_UNDERLINE)
+        self.win.addstr(2, 3, 'ilter:')
+        self.win.addstr(2, 10, self.filter, curses.A_REVERSE)
+        if self.filtering:
+            edit = windows.Editor(1, 20, (self.row+2,self.col+10))
+            filter = edit.gettext()
+            if filter:
+                self.filter = filter
+            self.win.addstr(2, 10, self.filter, curses.A_REVERSE)
+            self.filtering = False
+        row = 4
         col = 2
         colspace = 2
         rowspace = 1
@@ -435,7 +450,7 @@ class SideMenu(windows.Window):
         for pt in pts:
             calendar = windows.mycalendar(currentmonth)
             lookup = self.gettasksaslookup(currentmonth)
-            calendar.print(self.win, pt[0], pt[1], lookup)
+            calendar.print(self.win, pt[0], pt[1], lookup, self.filter)
             td = dateutil.relativedelta.relativedelta(months=1)
             currentmonth = currentmonth + td
 
@@ -444,10 +459,10 @@ class SideMenu(windows.Window):
         windows.Logger.log(tasks)
         lookup = {}
         for date, data in tasks.items():
-            am = 0
+            index = str(int(date.split('-')[-1]))
+            lookup[index] = {}
             for tag, tasks in data.items():
-                am += len(tasks)
-            lookup[str(int(date.split('-')[-1]))] = am
+                lookup[index][tag] = len(tasks)
         windows.Logger.log(lookup)
         return lookup
 
@@ -485,6 +500,9 @@ class SideMenu(windows.Window):
                     Manager.viewingdate = Manager.updatedate(Manager.viewingdate, -1, 'month')
                 elif ch == ord('n'):
                     Manager.viewingdate = Manager.updatedate(Manager.viewingdate, 1, 'month')
+                elif ch == ord('f'):
+                    self.filtering = True
+                    self.filter = ''
         return None,None
 
 class StatusBar:
