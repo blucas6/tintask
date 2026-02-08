@@ -521,7 +521,8 @@ class StatusBar:
 class AddTask(windows.Window):
     def draw(self):
         tab = 2
-        self.win.addstr(1, tab, 'What did you do today?')
+        date = Manager.currentday.strftime('%m/%d')
+        self.win.addstr(1, tab, f'What did you do today? ({date})')
         am = 0
         tasks = []
         row = 2+am

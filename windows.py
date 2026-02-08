@@ -28,7 +28,7 @@ class mycalendar:
                 if row == 2:
                     fshift = 3*firstday
                 if self.calarray[row][col] in tasks:
-                    attribute = curses.A_UNDERLINE
+                    attribute = curses.A_UNDERLINE | curses.A_BOLD
                 else:
                     attribute = curses.A_NORMAL
                 r = strow+row
@@ -136,6 +136,7 @@ class Window:
         self.erow = 0
         self.ecol = 0
         self.mode = None
+        self.win : curses.window = None
         try:
             self.win = curses.newwin(self.length, self.width, self.row, self.col)
         except Exception as e:
