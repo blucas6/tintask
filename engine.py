@@ -31,7 +31,7 @@ class Engine:
                                         end_column+1,
                                         curses.LINES-1,
                                         curses.COLS-end_column-1)
-            sidemenu.mode = 'report'
+            sidemenu.mode = 'tasks'
             Engine.winstack.append(sidemenu)
         main = tintask.TinTask(0, 0, curses.LINES-1, end_column)
         tintask.StatusBar.setup(curses.LINES-1, curses.COLS-1, stdscr)

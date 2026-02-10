@@ -348,6 +348,15 @@ class SideMenu(windows.Window):
         super().__init__(row, col, length, width)
         self.filtering = False
         self.filter = ''
+        self.reportpref = ''
+        self.finalreport = ''
+        try:
+            if os.path.exists('report.pref'):
+                with open('report.pref', 'r') as rp:
+                    self.reportpref = rp.readlines()
+            windows.Logger.log(f'Loaded preferences file ->\n{self.reportpref}')
+        except Exception as e:
+            windows.Logger.log(f'Error: Failed to load preferences file! -> {e}')
 
     def wrap(self, tab, task):
         cutat = self.width-tab
@@ -380,15 +389,21 @@ class SideMenu(windows.Window):
         return pos[0], pos[1]+2+len(name)+2
 
     def menu(self):
-        if self.mode == 'report':
-            er,ec = self.tab('Report', True, (0,0))
-            _,_ = self.tab('Calendar', False, (er,ec))
+        tasks = False
+        calendar = False
+        report = False
+        if self.mode == 'tasks':
+            tasks = True
         elif self.mode == 'calendar':
-            er,ec = self.tab('Report', False, (0,0))
-            _,_ = self.tab('Calendar', True, (er,ec))
+            calendar = True
+        elif self.mode == 'report':
+            report = True
+        er,ec = self.tab('Tasks', tasks, (0,0))
+        er,ec = self.tab('Calendar', calendar, (er,ec))
+        _,_ = self.tab('Report', report, (er,ec))
         self.win.addstr(1, 0, '-'*(self.width-1))
     
-    def report(self):
+    def tasks(self):
         start,end = Manager.getweek(Manager.viewingdate)
         start = Manager.datetobriefformat(start)
         end = Manager.datetobriefformat(end)
@@ -468,6 +483,74 @@ class SideMenu(windows.Window):
         windows.Logger.log(lookup)
         return lookup
 
+    def report(self):
+        try:
+            mytasks = Manager.getreport(Manager.viewingdate)
+            windows.Logger.log(f'report tasks {mytasks}')
+            start,end = Manager.getweek(Manager.viewingdate)
+            start = Manager.datetobriefformat(start)
+            end = Manager.datetobriefformat(end)
+            startweek = '__SWEEK__'
+            endweek = '__EWEEK__'
+            taskdump = '__TASKS__'
+            startfilter = '__SFILTER__'
+            endfilter = '__EFILTER__'
+            usefilter = ''
+            tagfilter = ''
+            tagtext = ''
+            showtags = True
+            self.finalreport = []
+            for line in self.reportpref:
+                line = line.strip()
+                if startweek in line:
+                    line = line.replace(startweek, start)
+                if endweek in line:
+                    line = line.replace(endweek, end)
+                if taskdump in line:
+                    if startfilter in line and endfilter in line:
+                        sx = line.find(startfilter) + len(startfilter)
+                        ex = line.find(endfilter)
+                        usefilter = line[sx:ex].strip()
+                        for filter in usefilter.split(','):
+                            property,text = filter.split(':')
+                            if property == 'tag':
+                                tagfilter = str(property)
+                                tagtext = str(text)
+                            elif property == 'notag':
+                                tagfilter = str(property)
+                                tagtext = str(text)
+                            elif property == 'tags':
+                                showtags = bool(int(text))
+                        line = line.replace(startfilter, '')
+                        line = line.replace(endfilter, '')
+                        line = line.replace(usefilter, '')
+                    windows.Logger.log(f'tagfilter: {tagfilter} {showtags}')
+                    line = line.replace(taskdump, '')
+                    for date, data in mytasks.items():
+                        for tag, tasks in data.items():
+                            if tagfilter == 'tag':
+                                if tag != tagtext:
+                                    continue
+                            elif tagfilter == 'notag':
+                                if tag == tagtext:
+                                    continue
+                            if showtags:
+                                if tag == Database.DB_NULL:
+                                    self.finalreport.append('')
+                                else:
+                                    self.finalreport.append(f'  {tag}')
+                            for task in tasks:
+                                self.finalreport.append(f'  - {task}')
+
+                self.finalreport.append(line)
+            row = 2
+            col = 1
+            for ix,line in enumerate(self.finalreport):
+                self.win.addstr(row+ix, col, line)
+        except Exception as e:
+            self.win.addstr(row, col, 'Unable to load report.pref file, check log for failures')
+            windows.Logger.log(f'Error (report.pref): {e}')
+
     def footer(self, increment='week'):
         self.win.addstr(self.length-1, 0, '-'*(self.width-1))
         self.win.addstr(self.length-2, 0, '< ')
@@ -479,20 +562,25 @@ class SideMenu(windows.Window):
 
     def draw(self):
         self.menu()
-        if self.mode == 'report':
-            self.report()
+        if self.mode == 'tasks':
+            self.tasks()
             self.footer('week')
         elif self.mode == 'calendar':
             self.calendar()
             self.footer('month')
+        elif self.mode == 'report':
+            self.report()
+            self.footer('week')
 
     def input(self, ch):
-        if ch == ord('r'):
-            self.mode = 'report'
+        if ch == ord('t'):
+            self.mode = 'tasks'
         elif ch == ord('c'):
             self.mode = 'calendar'
+        elif ch == ord('r'):
+            self.mode = 'report'
         else:
-            if self.mode == 'report':
+            if self.mode == 'tasks' or self.mode == 'report':
                 if ch == ord('p'):
                     Manager.viewingdate = Manager.updatedate(Manager.viewingdate, -1, 'week')
                 elif ch == ord('n'):
