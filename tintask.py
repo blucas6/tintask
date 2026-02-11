@@ -252,7 +252,9 @@ class Manager:
 
     @staticmethod
     def addtasks(date, selection, tasks, tag=''):
+        windows.Logger.log(f'Add tasks date: {date}')
         day = Manager.shiftdate(date, selection)
+        windows.Logger.log(f'Add tasks day: {day}')
         windows.Logger.log(f'Adding new task -> "{tasks}"')
         for t in tasks:
             if not t:
@@ -267,7 +269,9 @@ class Manager:
     @staticmethod
     def shiftdate(date, selection):
         todayn = date.weekday()
-        if todayn - selection > 0:
+        if selection == 0:
+            return date
+        elif todayn - selection > 0:
             return date - datetime.timedelta(days=todayn-selection)
         else:
             return date + datetime.timedelta(days=selection-todayn)
