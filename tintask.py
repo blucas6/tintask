@@ -197,7 +197,7 @@ class Database:
             Database.dbcursor.execute(cmd)
             Database.dbcon.commit()
         except Exception as e:
-            windows.Logger.log(f'SQL error: "{cmd}" -> {e}')
+            windows.Logger.log(f'SQL error: {e}')
 
     @staticmethod
     def gettasks(start, end):
@@ -208,10 +208,23 @@ class Database:
             ORDER BY date ASC;
             """
             windows.Logger.log(f'SQL cmd: "{cmd}"')
-            cmd = ' '.join(cmd.split())
+            #cmd = ' '.join(cmd.split())
             return Database.dbcursor.execute(cmd).fetchall()
         except Exception as e:
-            windows.Logger.log(f'SQL error: "{cmd}" -> {e}')
+            windows.Logger.log(f'SQL error: {e}')
+        return ''
+
+    @staticmethod
+    def search(column, substring):
+        try:
+            cmd = f"""
+            SELECT * FROM {column}
+            WHERE task LIKE '{substring}';
+            """
+            windows.Logger.log(f'SQL cmd: "{cmd}"')
+            return Database.dbcursor.execute(cmd).fetchall()
+        except Exception as e:
+            windows.Logger.log(f'SQL error: {e}')
         return ''
 
 class Manager:
@@ -347,6 +360,10 @@ class Manager:
         windows.Logger.log(f'Get tasks for month of {start} -> {end}')
         return start, end
 
+    @staticmethod
+    def searchtasks(substring):
+        return Database.search(DBTables.tasks, substring)
+
 class SideMenu(windows.Window):
     def __init__(self, row, col, length, width):
         super().__init__(row, col, length, width)
@@ -354,6 +371,8 @@ class SideMenu(windows.Window):
         self.filter = ''
         self.reportpref = ''
         self.finalreport = ''
+        self.searching = False
+        self.searchterm = ''
         try:
             if os.path.exists('report.pref'):
                 with open('report.pref', 'r') as rp:
@@ -396,16 +415,41 @@ class SideMenu(windows.Window):
         tasks = False
         calendar = False
         report = False
+        search = False
         if self.mode == 'tasks':
             tasks = True
         elif self.mode == 'calendar':
             calendar = True
         elif self.mode == 'report':
             report = True
+        elif self.mode == 'search':
+            search = True
         er,ec = self.tab('Tasks', tasks, (0,0))
         er,ec = self.tab('Calendar', calendar, (er,ec))
-        _,_ = self.tab('Report', report, (er,ec))
+        er,ec = self.tab('Report', report, (er,ec))
+        _,_ = self.tab('Search', search, (er,ec))
         self.win.addstr(1, 0, '-'*(self.width-1))
+
+    def search(self):
+        self.win.addstr(2, 2, 'S', curses.A_UNDERLINE)
+        self.win.addstr(2, 3, 'earch:')
+        self.win.addstr(2, 10, self.searchterm, curses.A_REVERSE)
+        if self.searching:
+            edit = windows.Editor(1, 20, (self.row+2,self.col+10))
+            searchterm = edit.gettext()
+            if searchterm:
+                self.searchterm = searchterm
+            self.win.addstr(2, 10, self.searchterm, curses.A_REVERSE)
+            self.searching = False
+            tasks = Manager.searchtasks(self.searchterm)
+            restxt = 'Results:'
+            self.win.addstr(4, 2, restxt)
+            if not tasks:
+                self.win.addstr(4, 2+len(restxt)+1, 'none')
+            else:
+                for rx,task in enumerate(tasks):
+                    self.win.addstr(5+rx, 2, f'{rx+1}: {task}')
+            windows.Logger.log(f'Found tasks -> {tasks}')
     
     def tasks(self):
         start,end = Manager.getweek(Manager.viewingdate)
@@ -555,14 +599,15 @@ class SideMenu(windows.Window):
             self.win.addstr(row, col, 'Unable to load report.pref file, check log for failures')
             windows.Logger.log(f'Error (report.pref): {e}')
 
-    def footer(self, increment='week'):
+    def footer(self, increment=''):
         self.win.addstr(self.length-1, 0, '-'*(self.width-1))
-        self.win.addstr(self.length-2, 0, '< ')
-        self.win.addstr(self.length-2, 2, 'P', curses.A_BOLD | curses.A_UNDERLINE)
-        self.win.addstr(self.length-2, 3, f'revious {increment}')
-        msg = f'ext {increment} >'
-        self.win.addstr(self.length-2, self.width-1-len(msg)-1, 'N', curses.A_BOLD | curses.A_UNDERLINE)
-        self.win.addstr(self.length-2, self.width-1-len(msg), msg)
+        if increment:
+            self.win.addstr(self.length-2, 0, '< ')
+            self.win.addstr(self.length-2, 2, 'P', curses.A_BOLD | curses.A_UNDERLINE)
+            self.win.addstr(self.length-2, 3, f'revious {increment}')
+            msg = f'ext {increment} >'
+            self.win.addstr(self.length-2, self.width-1-len(msg)-1, 'N', curses.A_BOLD | curses.A_UNDERLINE)
+            self.win.addstr(self.length-2, self.width-1-len(msg), msg)
 
     def draw(self):
         self.menu()
@@ -575,28 +620,36 @@ class SideMenu(windows.Window):
         elif self.mode == 'report':
             self.report()
             self.footer('week')
+        elif self.mode == 'search':
+            self.search()
+            self.footer()
 
     def input(self, ch):
+        if self.mode == 'tasks' or self.mode == 'report':
+            if ch == ord('p'):
+                Manager.viewingdate = Manager.updatedate(Manager.viewingdate, -1, 'week')
+            elif ch == ord('n'):
+                Manager.viewingdate = Manager.updatedate(Manager.viewingdate, 1, 'week')
+        elif self.mode == 'calendar':
+            if ch == ord('p'):
+                Manager.viewingdate = Manager.updatedate(Manager.viewingdate, -1, 'month')
+            elif ch == ord('n'):
+                Manager.viewingdate = Manager.updatedate(Manager.viewingdate, 1, 'month')
+            elif ch == ord('f'):
+                self.filtering = True
+                self.filter = ''
+        elif self.mode == 'search':
+            if ch == ord('s'):
+                self.searching = True
+                self.searchterm = ''
         if ch == ord('t'):
             self.mode = 'tasks'
         elif ch == ord('c'):
             self.mode = 'calendar'
         elif ch == ord('r'):
             self.mode = 'report'
-        else:
-            if self.mode == 'tasks' or self.mode == 'report':
-                if ch == ord('p'):
-                    Manager.viewingdate = Manager.updatedate(Manager.viewingdate, -1, 'week')
-                elif ch == ord('n'):
-                    Manager.viewingdate = Manager.updatedate(Manager.viewingdate, 1, 'week')
-            elif self.mode == 'calendar':
-                if ch == ord('p'):
-                    Manager.viewingdate = Manager.updatedate(Manager.viewingdate, -1, 'month')
-                elif ch == ord('n'):
-                    Manager.viewingdate = Manager.updatedate(Manager.viewingdate, 1, 'month')
-                elif ch == ord('f'):
-                    self.filtering = True
-                    self.filter = ''
+        elif ch == ord('s'):
+            self.mode = 'search'
         return None,None
 
 class StatusBar:
