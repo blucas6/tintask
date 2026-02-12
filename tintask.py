@@ -264,9 +264,12 @@ class Manager:
                 Manager.DB_DATE_FORMAT).strftime(Manager.DATE_FORMAT)
 
     @staticmethod
-    def addtasks(date, selection, tasks, tag=''):
+    def addtasks(date, tasks, tag='', selection=None):
         windows.Logger.log(f'Add tasks date: {date}')
-        day = Manager.shiftdate(date, selection)
+        if selection:
+            day = Manager.shiftdate(date, selection)
+        else:
+            day = date
         windows.Logger.log(f'Add tasks day: {day}')
         windows.Logger.log(f'Adding new task -> "{tasks}"')
         for t in tasks:
@@ -282,9 +285,7 @@ class Manager:
     @staticmethod
     def shiftdate(date, selection):
         todayn = date.weekday()
-        if selection == 0:
-            return date
-        elif todayn - selection > 0:
+        if todayn - selection > 0:
             return date - datetime.timedelta(days=todayn-selection)
         else:
             return date + datetime.timedelta(days=selection-todayn)
@@ -695,7 +696,9 @@ class AddTask(windows.Window):
         while True:
             self.win.addstr(row, tab, '> ')
             self.win.noutrefresh()
-            edit = windows.Editor(self.length, self.width-col, (self.row+row,self.col+col))
+            edit = windows.Editor(self.length-row,
+                                  self.width-col,
+                                  (self.row+row,self.col+col))
             task = edit.gettext()
             if task:
                 tasks.append(task)
@@ -711,13 +714,15 @@ class AddTask(windows.Window):
             self.win.addstr(row+1, tab, '>')
             self.win.noutrefresh()
             row += 1
-            edit = windows.Editor(self.length, self.width-col, (self.row+row,self.col+col))
+            edit = windows.Editor(self.length-row,
+                                  self.width-col,
+                                  (self.row+row,self.col+col))
             tag = edit.gettext()
             if not tag:
                 tag = ''
             StatusBar.update(10, 'Adding task to database...')
             curses.napms(100)
-            Manager.addtasks(Manager.currentday, 0, tasks, tag)
+            Manager.addtasks(Manager.currentday, tasks, tag)
             StatusBar.update(100)
             curses.napms(100)
         self.done = True
@@ -762,11 +767,12 @@ class EditTask(windows.Window):
                     library[task[1]].append(task[2])
                 else:
                     library[task[1]] = [task[2]]
+            windows.Logger.log(f'Edit task: library -> {library} -> {tasks}')
             self.win.addstr(row+1, tab, 'Edit which tag?')
             self.win.addstr(row+2, tab, '> ')
             self.win.noutrefresh()
             row += 2
-            edit = windows.Editor(self.length, self.width-col, (self.row+row,self.col+col))
+            edit = windows.Editor(self.length-row, self.width-col, (self.row+row,self.col+col))
             tagtoedit = edit.gettext()
             if edit.cancelled:
                 self.done = True
@@ -786,7 +792,9 @@ class EditTask(windows.Window):
             self.win.addstr(row+1, tab, '> ')
             row += 1
             self.win.noutrefresh()
-            edit = windows.Editor(self.length, self.width-col, (self.row+row,self.col+col),
+            edit = windows.Editor(self.length-row,
+                                  self.width-col,
+                                  (self.row+row,self.col+col),
                                   text, double=True)
             text = edit.gettext()
             if text and not edit.cancelled:
@@ -794,7 +802,7 @@ class EditTask(windows.Window):
                 curses.napms(100)
                 Manager.deletetasks(Manager.viewingdate, selection, tagtoedit)
                 tasks = text.split('-')
-                Manager.addtasks(Manager.viewingdate, selection, tasks, tagtoedit)
+                Manager.addtasks(Manager.viewingdate, tasks, tagtoedit, selection)
                 StatusBar.update(100)
                 curses.napms(100)
         self.done = True
