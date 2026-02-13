@@ -1,3 +1,4 @@
+import win32com.client as win32
 import calendar
 import math
 import curses
@@ -7,6 +8,72 @@ import sqlite3
 import datetime
 import dateutil.relativedelta
 import sys
+
+class ReportKeys():
+    SWEEK = '__SWEEK__'
+    EWEEK = '__EWEEK__'
+    TASKS = '__TASKS__'
+    SFILTER = '__SFILTER__'
+    EFILTER = '__EFILTER__'
+
+class ReportData:
+    def __init__(self, tasks, start, end, prefile):
+        self.tasks = tasks
+        self.start = start
+        self.end = end
+        self.prefile = prefile
+        self.mailto = '' 
+        self.subject = '' 
+        self.body = []
+        self.loadreport()
+
+    def loadreport(self):
+        usefilter = ''
+        tagfilter = ''
+        tagtext = ''
+        showtags = True
+        for line in self.prefile:
+            line = line.strip()
+            if ReportKeys.SWEEK in line:
+                line = line.replace(ReportKeys.SWEEK, self.start)
+            if ReportKeys.EWEEK in line:
+                line = line.replace(ReportKeys.EWEEK, self.end)
+            if ReportKeys.TASKS in line:
+                if ReportKeys.SFILTER in line and ReportKeys.EFILTER in line:
+                    sx = line.find(ReportKeys.SFILTER) + len(ReportKeys.SFILTER)
+                    ex = line.find(ReportKeys.EFILTER)
+                    usefilter = line[sx:ex].strip()
+                    for mfilter in usefilter.split(','):
+                        prop,text = mfilter.split(':')
+                        if prop == 'tag':
+                            tagfilter = str(prop)
+                            tagtext = str(text)
+                        elif prop == 'notag':
+                            tagfilter = str(prop)
+                            tagtext = str(text)
+                        elif prop == 'tags':
+                            showtags = bool(int(text))
+                    line = line.replace(ReportKeys.SFILTER, '')
+                    line = line.replace(ReportKeys.EFILTER, '')
+                    line = line.replace(usefilter, '')
+                windows.Logger.log(f'tagfilter: {tagfilter} {showtags}')
+                line = line.replace(ReportKeys.TASKS, '')
+                for tag,tasks in self.tasks.items():
+                    if tagfilter == 'tag':
+                        if tag != tagtext:
+                            continue
+                    elif tagfilter == 'notag':
+                        if tag == tagtext:
+                            continue
+                    if showtags:
+                        if tag == Database.DB_NULL:
+                            self.body.append('')
+                        else:
+                            self.body.append(f'  {tag}')
+                    for task in tasks:
+                        self.body.append(f'  - {task}')
+
+            self.body.append(line)
 
 class DBTables:
     tasks = 'tasks'
@@ -235,6 +302,33 @@ class Manager:
     viewingdate = datetime.datetime.now()
 
     @staticmethod
+    def sendEmail():
+        if sys.platform != 'win32':
+            return
+        try:
+            outlook = win32.Dispatch('outlook.application')
+            mail = outlook.CreateItem(0)
+            mail.To = self.createMailtoList()
+            mail.Subject = self.createSubject()
+            mail.Body = self.createReportDB()
+            # mail.HTMLBody = self.createReport(HTML=True)
+            send = input('Enter S to send. Enter anything else to quit\nChoice: ')
+        except Exception as e:
+            print(f'Failed to create email -> {e}')
+            input('<enter>')
+        else:
+            if send == 'S':
+                try:
+                    mail.Send()
+                    self.sendAnimation()
+                except Exception as e:
+                    print(f'FAILED to send! -> ({e})')
+                    input('<enter>')
+            else:
+                print('Exiting...')
+
+
+    @staticmethod
     def datetobriefformat(dobj):
         return dobj.strftime(Manager.BRIEF_FORMAT)
 
@@ -311,7 +405,7 @@ class Manager:
         return tasks
     
     @staticmethod
-    def getreport(date=None, period='week'):
+    def getreport(date=None, period='week', groupby=''):
         if not date:
             date = Manager.currentday
         if period == 'week':
@@ -321,11 +415,25 @@ class Manager:
         start = Manager.datetodbformat(start)
         end = Manager.datetodbformat(end)
         tasks = Database.gettasks(start, end)
-        tasks = Manager.organizetasks(tasks)
+        if groupby == 'tag':
+            tasks = Manager.organizetasksbytag(tasks)
+        else:
+            tasks = Manager.organizetasksdate(tasks)
         return tasks
 
     @staticmethod
-    def organizetasks(data):
+    def organizetasksbytag(data):
+        tasks = {}
+        for data, tag, task in data:
+            if tag in tasks:
+                tasks[tag].append(task)
+            else:
+                tasks[tag] = [task]
+        tasks = {tag: tasks for tag,tasks in sorted(tasks.items())}
+        return tasks
+
+    @staticmethod
+    def organizetasksdate(data):
         tasks = {}
         for date, tag, task in data:
             # check if date has been added
@@ -371,7 +479,6 @@ class SideMenu(windows.Window):
         self.filtering = False
         self.filter = ''
         self.reportpref = ''
-        self.finalreport = ''
         self.searching = False
         self.searchterm = ''
         try:
@@ -458,7 +565,7 @@ class SideMenu(windows.Window):
         end = Manager.datetobriefformat(end)
         weekmark = f'{start} - {end}'
         self.win.addstr(2, self.width-len(weekmark)-5, weekmark, curses.A_REVERSE)
-        tasks = Manager.getreport(Manager.viewingdate)
+        tasks = Manager.getreport(Manager.viewingdate, groupby='date')
         daterow = 3
         for date, vals in tasks.items():
             date = Manager.dbformattodate(date)
@@ -521,7 +628,7 @@ class SideMenu(windows.Window):
             currentmonth = currentmonth + td
 
     def gettasksaslookup(self, date):
-        tasks = Manager.getreport(date, 'month')
+        tasks = Manager.getreport(date, 'month', groupby='date')
         windows.Logger.log(tasks)
         lookup = {}
         for date, data in tasks.items():
@@ -534,67 +641,15 @@ class SideMenu(windows.Window):
 
     def report(self):
         try:
-            mytasks = Manager.getreport(Manager.viewingdate)
+            mytasks = Manager.getreport(Manager.viewingdate, groupby='tag')
             windows.Logger.log(f'report tasks {mytasks}')
             start,end = Manager.getweek(Manager.viewingdate)
             start = Manager.datetobriefformat(start)
             end = Manager.datetobriefformat(end)
-            startweek = '__SWEEK__'
-            endweek = '__EWEEK__'
-            taskdump = '__TASKS__'
-            startfilter = '__SFILTER__'
-            endfilter = '__EFILTER__'
-            usefilter = ''
-            tagfilter = ''
-            tagtext = ''
-            showtags = True
-            self.finalreport = []
-            for line in self.reportpref:
-                line = line.strip()
-                if startweek in line:
-                    line = line.replace(startweek, start)
-                if endweek in line:
-                    line = line.replace(endweek, end)
-                if taskdump in line:
-                    if startfilter in line and endfilter in line:
-                        sx = line.find(startfilter) + len(startfilter)
-                        ex = line.find(endfilter)
-                        usefilter = line[sx:ex].strip()
-                        for filter in usefilter.split(','):
-                            property,text = filter.split(':')
-                            if property == 'tag':
-                                tagfilter = str(property)
-                                tagtext = str(text)
-                            elif property == 'notag':
-                                tagfilter = str(property)
-                                tagtext = str(text)
-                            elif property == 'tags':
-                                showtags = bool(int(text))
-                        line = line.replace(startfilter, '')
-                        line = line.replace(endfilter, '')
-                        line = line.replace(usefilter, '')
-                    windows.Logger.log(f'tagfilter: {tagfilter} {showtags}')
-                    line = line.replace(taskdump, '')
-                    for date, data in mytasks.items():
-                        for tag, tasks in data.items():
-                            if tagfilter == 'tag':
-                                if tag != tagtext:
-                                    continue
-                            elif tagfilter == 'notag':
-                                if tag == tagtext:
-                                    continue
-                            if showtags:
-                                if tag == Database.DB_NULL:
-                                    self.finalreport.append('')
-                                else:
-                                    self.finalreport.append(f'  {tag}')
-                            for task in tasks:
-                                self.finalreport.append(f'  - {task}')
-
-                self.finalreport.append(line)
+            reportdata = ReportData(mytasks, start, end, self.reportpref)
             row = 2
             col = 1
-            for ix,line in enumerate(self.finalreport):
+            for ix,line in enumerate(reportdata.body):
                 self.win.addstr(row+ix, col, line)
         except Exception as e:
             self.win.addstr(row, col, 'Unable to load report.pref file, check log for failures')
