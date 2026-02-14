@@ -1,4 +1,3 @@
-import win32com.client as win32
 import calendar
 import math
 import curses
@@ -9,7 +8,12 @@ import datetime
 import dateutil.relativedelta
 import sys
 
+if sys.platform == 'win32':
+    import win32com.client as win32
+
 class ReportKeys():
+    MAILTO = '__MAILTO__'
+    SUBJECT = '__SUBJECT__'
     SWEEK = '__SWEEK__'
     EWEEK = '__EWEEK__'
     TASKS = '__TASKS__'
@@ -34,6 +38,18 @@ class ReportData:
         showtags = True
         for line in self.prefile:
             line = line.strip()
+            if ReportKeys.MAILTO in line:
+                line = line.replace(ReportKeys.MAILTO, '')
+                self.mailto = line 
+                continue
+            if ReportKeys.SUBJECT in line:
+                line = line.replace(ReportKeys.SUBJECT, '')
+                if ReportKeys.SWEEK in line:
+                    line = line.replace(ReportKeys.SWEEK, self.start)
+                if ReportKeys.EWEEK in line:
+                    line = line.replace(ReportKeys.EWEEK, self.end)
+                self.subject = line
+                continue
             if ReportKeys.SWEEK in line:
                 line = line.replace(ReportKeys.SWEEK, self.start)
             if ReportKeys.EWEEK in line:
@@ -66,9 +82,7 @@ class ReportData:
                         if tag == tagtext:
                             continue
                     if showtags:
-                        if tag == Database.DB_NULL:
-                            self.body.append('')
-                        else:
+                        if tag != Database.DB_NULL:
                             self.body.append(f'  {tag}')
                     for task in tasks:
                         self.body.append(f'  - {task}')
@@ -359,8 +373,8 @@ class Manager:
 
     @staticmethod
     def addtasks(date, tasks, tag='', selection=None):
-        windows.Logger.log(f'Add tasks date: {date}')
-        if selection:
+        windows.Logger.log(f'Add tasks date: {date} select:{selection}')
+        if selection != None:
             day = Manager.shiftdate(date, selection)
         else:
             day = date
@@ -378,6 +392,7 @@ class Manager:
 
     @staticmethod
     def shiftdate(date, selection):
+        windows.Logger.log(f'Shifting date: {date} by {selection}')
         todayn = date.weekday()
         if todayn - selection > 0:
             return date - datetime.timedelta(days=todayn-selection)
@@ -649,8 +664,17 @@ class SideMenu(windows.Window):
             reportdata = ReportData(mytasks, start, end, self.reportpref)
             row = 2
             col = 1
+            if reportdata.mailto:
+                self.win.addstr(row, col, f'To: {reportdata.mailto}')
+                row += 1
+            if reportdata.subject:
+                self.win.addstr(row, col, f'Subject: {reportdata.subject}')
+                row += 1
+            row += 1
             for ix,line in enumerate(reportdata.body):
-                self.win.addstr(row+ix, col, line)
+                text,am = self.wrap(1, line)
+                self.win.addstr(row+ix, col, text)
+                row += am
         except Exception as e:
             self.win.addstr(row, col, 'Unable to load report.pref file, check log for failures')
             windows.Logger.log(f'Error (report.pref): {e}')
