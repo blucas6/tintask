@@ -316,6 +316,13 @@ class Manager:
     viewingdate = datetime.datetime.now()
 
     @staticmethod
+    def wrap(text, width):
+        am = math.ceil(len(text) / width)
+        #if len(text) > am * width:
+        #    am += 1
+        return am
+
+    @staticmethod
     def sendEmail():
         if sys.platform != 'win32':
             return
@@ -496,6 +503,7 @@ class SideMenu(windows.Window):
         self.reportpref = ''
         self.searching = False
         self.searchterm = ''
+        self.searchresults = []
         try:
             if os.path.exists('report.pref'):
                 with open('report.pref', 'r') as rp:
@@ -562,17 +570,24 @@ class SideMenu(windows.Window):
             searchterm = edit.gettext()
             if searchterm:
                 self.searchterm = searchterm
+            else:
+                self.searchresults = []
             self.win.addstr(2, 10, self.searchterm, curses.A_REVERSE)
             self.searching = False
-            tasks = Manager.searchtasks(self.searchterm)
-            restxt = 'Results:'
-            self.win.addstr(4, 2, restxt)
-            if not tasks:
-                self.win.addstr(4, 2+len(restxt)+1, 'none')
-            else:
-                for rx,task in enumerate(tasks):
-                    self.win.addstr(5+rx, 2, f'{rx+1}: {task}')
-            windows.Logger.log(f'Found tasks -> {tasks}')
+            self.searchresults = Manager.searchtasks(self.searchterm)
+        restxt = 'Results:'
+        self.win.addstr(4, 2, restxt)
+        if not self.searchresults:
+            self.win.addstr(4, 2+len(restxt)+1, 'none')
+        else:
+            row = 5
+            for rx,task in enumerate(self.searchresults):
+                text = f'  {rx+1}: {task}'
+                am = Manager.wrap(text, self.width)
+                self.win.addstr(row, 0, text)
+                self.win.addstr(row, 2, f'{rx+1}:', curses.A_REVERSE)
+                row += am
+        windows.Logger.log(f'Found tasks -> {self.searchresults}')
     
     def tasks(self):
         start,end = Manager.getweek(Manager.viewingdate)
@@ -585,27 +600,27 @@ class SideMenu(windows.Window):
         for date, vals in tasks.items():
             date = Manager.dbformattodate(date)
             if daterow < self.length-3:
-                self.safeprint((daterow,1), date, curses.A_BOLD | curses.A_UNDERLINE)
+                self.win.addstr(daterow, 1, date, curses.A_BOLD | curses.A_UNDERLINE)
             tagrow = 1
             for tag, task in vals.items():
                 if tag == Database.DB_NULL:
                     trow = 1
                     for t in task:
-                        tab = '  - '
-                        text,am = self.wrap(len(tab), t)
+                        text = f'  - {t}'
+                        am = Manager.wrap(text, self.width)
                         if daterow < self.length-3:
-                            self.safeprint((daterow+trow,0), tab+text)
-                        trow += 1 + am
+                            self.win.addstr(daterow+trow, 0, text)
+                        trow += am
                     daterow += trow
                 else:
-                    self.safeprint((daterow+tagrow,2), tag, curses.A_REVERSE)
+                    self.win.addstr(daterow+tagrow, 2, tag, curses.A_REVERSE)
                     trow = 1
                     for t in task:
-                        tab = '   - '
-                        text,am = self.wrap(len(tab), t)
+                        text = f'   - {t}'
+                        am = Manager.wrap(text, self.width)
                         if daterow < self.length-3:
-                            self.safeprint((daterow+tagrow+trow,0), tab+text)
-                        trow += 1 + am
+                            self.win.addstr(daterow+tagrow+trow, 0, text)
+                        trow += am
                     daterow += trow + tagrow
 
     def calendar(self):

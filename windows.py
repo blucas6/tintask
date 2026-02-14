@@ -161,9 +161,4 @@ class Window:
 
     def input(self, _):
         return None,None
-    
-    def safeprint(self, pos, text, attributes=curses.A_NORMAL):
-        if (pos[0] < self.length and pos[1] < self.width
-            and pos[0] > -1 and pos[1] > -1):
-            self.win.addstr(pos[0], pos[1], text, attributes)
 
