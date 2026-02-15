@@ -512,6 +512,26 @@ class SideMenu(windows.Window):
         except Exception as e:
             windows.Logger.log(f'Error: Failed to load preferences file! -> {e}')
 
+    def displayday(self, row, col, maxrow, maxcol, date, data):
+        date = Manager.dbformattodate(date)
+        if row < maxrow:
+            self.win.addstr(row, col, date, curses.A_BOLD | curses.A_UNDERLINE)
+            row += 1
+        for tag,tasks in data.items():
+            tab = ''
+            if tag != Database.DB_NULL:
+                if row < maxrow:
+                    self.win.addstr(row, col+2, tag, curses.A_REVERSE)
+                    row += 1
+                    tab = '  '
+            for task in tasks:
+                text = f' {tab}- {task}'
+                am = Manager.wrap(text, maxcol)
+                if row < maxrow:
+                    self.win.addstr(row, col, text)
+                row += am
+        return row,col
+
     def wrap(self, tab, task):
         cutat = self.width-tab
         newtask = task[:cutat]
@@ -596,32 +616,9 @@ class SideMenu(windows.Window):
         weekmark = f'{start} - {end}'
         self.win.addstr(2, self.width-len(weekmark)-5, weekmark, curses.A_REVERSE)
         tasks = Manager.getreport(Manager.viewingdate, groupby='date')
-        daterow = 3
+        er = 3
         for date, vals in tasks.items():
-            date = Manager.dbformattodate(date)
-            if daterow < self.length-3:
-                self.win.addstr(daterow, 1, date, curses.A_BOLD | curses.A_UNDERLINE)
-            tagrow = 1
-            for tag, task in vals.items():
-                if tag == Database.DB_NULL:
-                    trow = 1
-                    for t in task:
-                        text = f'  - {t}'
-                        am = Manager.wrap(text, self.width)
-                        if daterow < self.length-3:
-                            self.win.addstr(daterow+trow, 0, text)
-                        trow += am
-                    daterow += trow
-                else:
-                    self.win.addstr(daterow+tagrow, 2, tag, curses.A_REVERSE)
-                    trow = 1
-                    for t in task:
-                        text = f'   - {t}'
-                        am = Manager.wrap(text, self.width)
-                        if daterow < self.length-3:
-                            self.win.addstr(daterow+tagrow+trow, 0, text)
-                        trow += am
-                    daterow += trow + tagrow
+            er,_ = self.displayday(er, 0, self.length-3, self.width, date, vals)
 
     def calendar(self):
         self.win.addstr(2, 2, 'F', curses.A_UNDERLINE)
