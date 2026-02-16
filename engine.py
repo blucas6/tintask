@@ -2,6 +2,7 @@ import curses
 import tintask
 import windows
 import sys
+import locale
 
 class Engine:
     winstack = []
@@ -47,6 +48,7 @@ class Engine:
         if sys.platform != 'win32':
             curses.set_escdelay(25)
         curses.curs_set(0)
+        locale.setlocale(locale.LC_ALL, '')
         stdscr.keypad(True)
         windows.Logger.log(f'Terminal size [{curses.LINES},{curses.COLS}]')
         stdscr.refresh()

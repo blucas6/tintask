@@ -82,10 +82,12 @@ class Waction(enum.Enum):
     POP = 2
     PASS = 3
 
-def box(win, msg, padx, pady, pos):
+def box(win, padx, pady, pos, msg=''):
     endrow = pos[0]+2+padx*2
     endcol = len(msg)+pos[1]+1+pady*2
-    win.addstr(pos[0]+1+padx, pos[1]+1+pady, msg, curses.A_BOLD | curses.A_UNDERLINE)
+    if msg:
+        win.addstr(pos[0]+1+padx, pos[1]+1+pady, msg, curses.A_BOLD | curses.A_UNDERLINE)
+    Logger.log(f'Rectangle: {pos} {endrow} {endcol}')
     curses.textpad.rectangle(win, pos[0], pos[1], endrow, endcol)
     return endrow+1, endcol+1
 
@@ -94,6 +96,16 @@ def option(stdscr, letter, msg, pos):
     stdscr.addstr(pos[0], pos[1], opt , curses.A_BOLD)
     stdscr.addstr(pos[0], pos[1]+len(opt)+1, msg)
     return pos[0]+1, pos[1]+5+len(msg)+1
+    
+def tab(win, name, selected, pos):
+    if selected:
+        highlight = curses.A_BOLD
+    else:
+        highlight = curses.A_NORMAL
+    win.addstr(pos[0], pos[1], '/ ', highlight)
+    win.addstr(pos[0], pos[1]+2, name[0], curses.A_BOLD | curses.A_UNDERLINE)
+    win.addstr(pos[0], pos[1]+3, name[1:]+' \\', highlight)
+    return pos[0], pos[1]+2+len(name)+2
 
 class Editor:
     def __init__(self, rows, cols, pos, msg='', double=False):
