@@ -163,8 +163,8 @@ class Window:
             self.win = curses.newwin(self.length, self.width, self.row, self.col)
         except Exception as e:
             self.win = None
-            Logger.log(f'ERROR: {self} failed to create window! [{self.row} {self.col} {self.length} {self.width}] -> {e}')
-        Logger.log(f'{self}:')
+            Logger.log(f'ERROR: {self} failed to create window! -> {e}')
+        Logger.log(f'{self.__class__.__name__}:')
         Logger.log(f'\tRows: {self.length} Cols: {self.width}')
         Logger.log(f'\tStartR: {self.row} StartC: {self.col}')
 

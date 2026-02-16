@@ -95,43 +95,74 @@ class Mail(windows.Window):
     def __init__(self, row, col, length, width):
         super().__init__(row, col, length, width)
         self.dosend = False
+        self.status = ['Ready to send', 'Sending', 'Sent!', 'Failed to send!']
+        self.statusix = 0
+
+    def displaystatus(self):
+        maxlen = max([len(smsgs) for smsgs in self.status])
+        msg = f'Status: '
+        self.win.addstr(6, self.width-2-maxlen, ' '*maxlen)
+        self.win.addstr(6, self.width-2-len(msg)-maxlen, msg)
+        self.win.addstr(6, self.width-2-maxlen, self.status[self.statusix])
+
+    def refresh(self, reportdata: ReportData):
+        self.win.addstr(1, 1, 'Outlook Email Report')
+        for ix in range(self.width-3):
+            self.win.addch(2, 1+ix, curses.ACS_HLINE)
+        msg = f'<esc> to quit'
+        self.win.addstr(self.length-2, self.width-len(msg)-3, msg)
+        self.displaystatus()
+        if not self.dosend:
+            attrib1 = curses.A_BOLD | curses.A_UNDERLINE
+            attrib2 = curses.A_NORMAL
+        else:
+            attrib1 = curses.A_REVERSE
+            attrib2 = curses.A_REVERSE
+        self.win.addstr(3, 1, f'Send to: {reportdata.mailto}')
+        self.win.addstr(4, 1, f'Subject: {reportdata.subject}')
+        self.win.addstr(6, 1, 'Actions:', curses.A_UNDERLINE)
+        self.win.addstr(7, 2, 'M', attrib1)
+        self.win.addstr(7, 3, 'ail now', attrib2)
+        self.win.noutrefresh()
 
     def draw(self):
         curses.textpad.rectangle(self.win, 0, 0, self.length-2, self.width-2)
         if sys.platform != 'win32':
             self.win.addstr(1, 1, 'Currently unavailable for non Windows Operating Systems')
         else:
-            self.win.addstr(1, 1, 'Outlook Email Report')
-            for ix in range(self.width-3):
-                self.win.addch(2, 1+ix, curses.ACS_HLINE)
             try:
                 reportdata = Manager.loadreportdata()
-                self.win.addstr(3, 1, f'Send to: {reportdata.mailto}')
-                self.win.addstr(4, 1, f'Subject: {reportdata.subject}')
-                if not self.dosend:
-                    attrib1 = curses.A_BOLD | curses.A_UNDERLINE
-                    attrib2 = curses.A_NORMAL
-                else:
-                    attrib1 = curses.A_REVERSE
-                    attrib2 = curses.A_REVERSE
-                self.win.addstr(6, 1, 'M', attrib1)
-                self.win.addstr(6, 2, 'ail now', attrib2)
-                curses.napms(100)
-                if self.dosend:
-                    StatusBar.update(10, 'Sending Email ...')
-                    curses.napms(800)
-                    StatusBar.update(100)
-                    curses.napms(100)
-                    self.done = True
             except Exception as e:
                 windows.Logger.log(f'Error loading report data: {e}')
                 self.win.addstr(3, 1, f'Failed to create the email, please check the logs')
+                return
+            self.refresh(reportdata)
+            if self.dosend:
+                StatusBar.update(10, 'Sending Email ...')
+                try:
+                    curses.napms(200)
+                    Manager.sendemail(reportdata)
+                    self.done = True
+                except Exception as e:
+                    self.statusix = 3
+                    windows.Logger.log(f'Error sending the email -> {e}')
+                    self.dosend = False
+                    StatusBar.update(0)
+                    self.refresh(reportdata)
+                    return
+                StatusBar.update(100)
+                curses.napms(100)
+                self.statusix = 2
+                self.refresh(reportdata)
+                curses.doupdate()
+                curses.napms(200)
 
     def input(self, ch):
         if ch == curses.ascii.ESC:
             return None,windows.Waction.POP
         elif ch == ord('m'):
             self.dosend = True
+            self.statusix = 1
         return None,None
 
 class DBTables:
@@ -378,30 +409,27 @@ class Manager:
         return ReportData(mytasks, start, end, Manager.reportpref)
 
     @staticmethod
-    def sendemail():
+    def sendemail(reportdata):
         if sys.platform != 'win32':
             return
         try:
-            reportdata = Manager.loadreportdata()
             outlook = win32.Dispatch('outlook.application')
             mail = outlook.CreateItem(0)
             mail.To = reportdata.mailto
             mail.Subject = reportdata.subject
-            mail.Body = reportdata.body
+            body = '\n'.join(reportdata.body)
+            mail.Body = body
+            mail.Send()
             # mail.HTMLBody = self.createReport(HTML=True)
         except Exception as e:
-            print(f'Error: failed to create email -> {e}')
-        else:
-            if send == 'S':
-                try:
-                    mail.Send()
-                    self.sendAnimation()
-                except Exception as e:
-                    print(f'FAILED to send! -> ({e})')
-                    input('<enter>')
-            else:
-                print('Exiting...')
-
+            windows.Logger.log(f"""
+            Email:
+                Mailto:{reportdata.mailto}
+                Subject:{reportdata.subject}
+                Body:{body}
+            """)
+            windows.Logger.log(f'Error: failed to create email -> {e}')
+            raise Exception(e)
 
     @staticmethod
     def datetobriefformat(dobj):
@@ -785,34 +813,38 @@ class SideMenu(windows.Window):
         return None,None
 
 class StatusBar:
-    mrow = 0
-    mcol = 0
     delay = 100
     bar = windows.Bar(10)
-    stdscr: curses.window = None
+    win: curses.window = None
 
-    @staticmethod
-    def setup(termrows, termcols, stdscr):
-        StatusBar.mrow = termrows
-        StatusBar.mcol = termcols
-        StatusBar.stdscr = stdscr
+    @classmethod
+    def setup(cls, length, width, pos):
+        StatusBar.length = length 
+        StatusBar.width = width 
+        try:
+            StatusBar.win = curses.newwin(length, width, pos[0], pos[1])
+        except Exception as e:
+            StatusBar.win = None
+            windows.Logger.log(f'ERROR: StatusBar failed to create window! -> {e}')
+            raise Exception(e)
+        windows.Logger.log(f'{cls.__name__}:')
+        windows.Logger.log(f'\tRows: {length} Cols: {width}')
+        windows.Logger.log(f'\tStartR: {pos[0]} StartC: {pos[1]}')
 
     @staticmethod
     def update(progress=0, message=''):
-        StatusBar.stdscr.addstr(StatusBar.mrow, 0, ' '*StatusBar.mcol)
-        StatusBar.stdscr.addstr(
-                StatusBar.mrow,
-                StatusBar.mcol-StatusBar.bar.totalsize,
-                StatusBar.bar.update(0))
-        StatusBar.stdscr.addstr(StatusBar.mrow, StatusBar.mcol-StatusBar.bar.totalsize,
-                                    StatusBar.bar.update(progress))
+        StatusBar.win.addstr(0, 0, ' '*(StatusBar.width-1))
+        StatusBar.win.addstr(0,
+                             StatusBar.width-StatusBar.bar.totalsize-1,
+                             StatusBar.bar.update(0))
+        StatusBar.win.addstr(0,
+                             StatusBar.width-StatusBar.bar.totalsize-1,
+                             StatusBar.bar.update(progress))
         if message:
             decal = StatusBar.bar.totalsize+len(message)+1
-            if StatusBar.mcol-decal >= 0:
-                StatusBar.stdscr.addstr(StatusBar.mrow,
-                                        StatusBar.mcol-decal,
-                                        message)
-        StatusBar.stdscr.noutrefresh()
+            if StatusBar.width-decal >= 0:
+                StatusBar.win.addstr(0, StatusBar.width-decal-1, message)
+        StatusBar.win.noutrefresh()
         curses.doupdate()
 
 class AddTask(windows.Window):
