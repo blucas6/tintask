@@ -98,40 +98,53 @@ class Mail(windows.Window):
         self.status = ['Ready to send', 'Sending', 'Sent!', 'Failed to send!']
         self.statusix = 0
 
-    def displaystatus(self):
+    def displaystatus(self, row):
         maxlen = max([len(smsgs) for smsgs in self.status])
         msg = f'Status: '
-        self.win.addstr(6, self.width-2-maxlen, ' '*maxlen)
-        self.win.addstr(6, self.width-2-len(msg)-maxlen, msg)
-        self.win.addstr(6, self.width-2-maxlen, self.status[self.statusix])
+        self.win.addstr(row, self.width-2-maxlen, ' '*maxlen)
+        self.win.addstr(row, self.width-2-len(msg)-maxlen, msg)
+        self.win.addstr(row, self.width-2-maxlen, self.status[self.statusix])
 
-    def refresh(self, reportdata: ReportData):
+    def refresh(self, reportdata: ReportData=None):
         self.win.addstr(1, 1, 'Outlook Email Report')
         for ix in range(self.width-3):
             self.win.addch(2, 1+ix, curses.ACS_HLINE)
         msg = f'<esc> to quit'
         self.win.addstr(self.length-2, self.width-len(msg)-3, msg)
-        self.displaystatus()
         if not self.dosend:
             attrib1 = curses.A_BOLD | curses.A_UNDERLINE
             attrib2 = curses.A_NORMAL
         else:
             attrib1 = curses.A_REVERSE
             attrib2 = curses.A_REVERSE
-        self.win.addstr(3, 1, f'Send to: {reportdata.mailto}')
-        self.win.addstr(4, 1, f'Subject: {reportdata.subject}')
-        self.win.addstr(6, 1, 'Actions:', curses.A_UNDERLINE)
-        self.win.addstr(7, 2, 'M', attrib1)
-        self.win.addstr(7, 3, 'ail now', attrib2)
-        self.win.noutrefresh()
+        row = 3
+        col = 1
+        if reportdata != None:
+            text = f'Send to: {reportdata.mailto}'
+            spliced,am = Manager.splice(text, self.width-2-col)
+            for ix,txt in enumerate(spliced):
+                self.win.addstr(row+ix, col, txt)
+            row += am
+            text = f'Subject: {reportdata.subject}'
+            spliced,am = Manager.splice(text, self.width-2-col)
+            for ix,txt in enumerate(spliced):
+                self.win.addstr(row+ix, col, txt)
+            row += am + 1
+            self.displaystatus(row)
+            self.win.addstr(row, col, 'Actions:', curses.A_UNDERLINE)
+            row += 1
+            self.win.addstr(row, col+1, 'M', attrib1)
+            self.win.addstr(row, col+2, 'ail now', attrib2)
+            self.win.noutrefresh()
 
     def draw(self):
         curses.textpad.rectangle(self.win, 0, 0, self.length-2, self.width-2)
         if sys.platform != 'win32':
             self.win.addstr(1, 1, 'Currently unavailable for non Windows Operating Systems')
         else:
+            self.refresh()
             try:
-                reportdata = Manager.loadreportdata()
+                reportdata = Manager.loadreportdata()[0]
             except Exception as e:
                 windows.Logger.log(f'Error loading report data: {e}')
                 self.win.addstr(3, 1, f'Failed to create the email, please check the logs')
@@ -393,10 +406,16 @@ class Manager:
     reportpref = ''
 
     @staticmethod
+    def splice(text, width):
+        spliced = [text[i:i+width] for i in range(0, len(text), width)]
+        am = Manager.wrap(text, width)
+        return spliced, am
+
+    @staticmethod
     def wrap(text, width):
         am = math.ceil(len(text) / width)
-        #if len(text) > am * width:
-        #    am += 1
+        if am == 0:
+            return 1
         return am
 
     @staticmethod
@@ -613,26 +632,6 @@ class SideMenu(windows.Window):
                 row += am
         return row,col
 
-    def wrap(self, tab, task):
-        cutat = self.width-tab
-        newtask = task[:cutat]
-        am = 0
-        while True:
-            end = cutat + self.width
-            if end < len(task):
-                #newtask += '\n' + task[cutat:end]
-                newtask += task[cutat:end]
-                cutat += self.width
-                am += 1
-            else:
-                extra = task[cutat:]
-                if extra:
-                    #newtask += '\n' + extra
-                    newtask += extra
-                    am += 1
-                break
-        return newtask, am
-
     def menu(self):
         tasks = False
         calendar = False
@@ -744,15 +743,20 @@ class SideMenu(windows.Window):
             row = 2
             col = 1
             if reportdata.mailto:
-                self.win.addstr(row, col, f'To: {reportdata.mailto}')
-                row += 1
+                text = f'To: {reportdata.mailto}'
+                am = Manager.wrap(text, self.width)
+                self.win.addstr(row, col, text)
+                row += am
             if reportdata.subject:
-                self.win.addstr(row, col, f'Subject: {reportdata.subject}')
-                row += 1
+                text = f'Subject: {reportdata.subject}'
+                am = Manager.wrap(text, self.width)
+                self.win.addstr(row, col, text)
+                row += am
             row += 1
-            for ix,line in enumerate(reportdata.body):
-                text,am = self.wrap(1, line)
-                self.win.addstr(row+ix, col, text)
+            windows.Logger.log(reportdata.body)
+            for line in reportdata.body:
+                am = Manager.wrap(line, self.width)
+                self.win.addstr(row, col, line)
                 row += am
         except Exception as e:
             self.win.addstr(row, col, 'Unable to load report.pref file, check log for failures')
