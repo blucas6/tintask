@@ -189,11 +189,14 @@ class DBTables:
     #tasks = 'tasks'
     #tasks_columns = 'date DATE, tag TEXT, task TEXT'
     tasks = 'tasks'
-    tasks_columns = 'id INTEGER PRIMARY KEY, date DATE, task TEXT'
+    tasks_columns = 'id SERIAL INTEGER PRIMARY KEY, date DATE, task TEXT'
     tags = 'tags'
-    tags_columns = 'id INTEGER PRIMARY KEY, tag TEXT'
-    resources = 'resources'
-    resources_columns = 'task_id INTEGER, tag_id INTEGER, FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE, FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE'
+    tags_columns = 'id SERIAL INTEGER PRIMARY KEY, tag TEXT'
+    junction = 'junction'
+    junction_columns = 'task_id INTEGER, tag_id INTEGER, PRIMARY KEY (task_id,tag_id) FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE, FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE'
+
+class DBIndexes:
+    tagindex = f'tagindex ON {DBTables.tasks}(date)'
 
 class Install(windows.Window):
     def __init__(self, row, col, length, width):
@@ -208,12 +211,9 @@ class Install(windows.Window):
         return True
 
     def setuptables(self):
-        if not Database.checktable(DBTables.tasks):
-            Database.createtable(DBTables.tasks, DBTables.tasks_columns)
-        if not Database.checktable(DBTables.tags):
-            Database.createtable(DBTables.tags, DBTables.tags_columns)
-        if not Database.checktable(DBTables.resources):
-            Database.createtable(DBTables.resources, DBTables.resources_columns)
+        Database.createtable(DBTables.tasks, DBTables.tasks_columns)
+        Database.createtable(DBTables.tags, DBTables.tags_columns)
+        Database.createtable(DBTables.junction, DBTables.junction_columns)
     
     def step(self, func, msg):
         windows.Logger.log(f'Install step: {msg}')
@@ -239,8 +239,6 @@ class Install(windows.Window):
             self.step(self.setuptables, 'Making tables...')
             self.win.addstr(4, 1, ' '*50)
             self.win.addstr(4, 1, 'Final check...')
-            if not Database.sanitycheck():
-                raise Exception('Database tables could not be created!')
             self.win.addstr(5, 1, self.bar.update(100))
             self.win.addstr(4, 1, ' '*50)
             self.win.addstr(4, 1, 'Done!')
@@ -274,20 +272,10 @@ class Database:
             windows.Logger.log(f'Uninstalling error: {e}')
 
     @staticmethod
-    def sanitycheck():
-        if not Database.checktable(DBTables.tasks):
-            return False
-        if not Database.checktable(DBTables.tags):
-            return False
-        if not Database.checktable(DBTables.resources):
-            return False
-        return True
-
-    @staticmethod
     def createtable(table, columns):
         try:
             cmd = f"""
-            CREATE TABLE {table} ({columns})
+            CREATE TABLE IF NOT EXISTS {table} ({columns})
             """
             windows.Logger.log(f'SQL cmd: {cmd}')
             Database.dbcon.execute(cmd)
@@ -482,8 +470,6 @@ class Manager:
     @staticmethod
     def start():
         Database.setup()
-        if not Database.sanitycheck():
-            raise Exception(f'Error: Databases not set up properly')
         try:
             if os.path.exists('report.pref'):
                 with open('report.pref', 'r') as rp:
@@ -525,7 +511,7 @@ class Manager:
             windows.Logger.log(f'task id: {tagid}')
             if taskid != None and tagid != None:
                 row = [str(taskid), str(tagid)]
-                _ = Database.addrow(DBTables.resources, row)
+                _ = Database.addrow(DBTables.junction, row)
 
     @staticmethod
     def shiftdate(date, selection):
