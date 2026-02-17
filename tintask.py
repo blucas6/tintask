@@ -84,7 +84,7 @@ class ReportData:
                         if tag == tagtext:
                             continue
                     if showtags:
-                        if tag != Database.DB_NULL:
+                        if tag != Database.NULL_TAG:
                             self.body.append(f'  {tag}')
                     for task in tasks:
                         self.body.append(f'  - {task}')
@@ -189,9 +189,9 @@ class DBTables:
     #tasks = 'tasks'
     #tasks_columns = 'date DATE, tag TEXT, task TEXT'
     tasks = 'tasks'
-    tasks_columns = 'id SERIAL INTEGER PRIMARY KEY, date DATE, task TEXT'
+    tasks_columns = 'id INTEGER PRIMARY KEY AUTOINCREMENT, date DATE, task TEXT'
     tags = 'tags'
-    tags_columns = 'id SERIAL INTEGER PRIMARY KEY, tag TEXT'
+    tags_columns = 'id INTEGER PRIMARY KEY AUTOINCREMENT, tag TEXT'
     junction = 'junction'
     junction_columns = 'task_id INTEGER, tag_id INTEGER, PRIMARY KEY (task_id,tag_id) FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE, FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE'
 
@@ -259,7 +259,15 @@ class Database:
     dbcon: sqlite3.Connection = None
     dbcursor: sqlite3.Cursor = None
     dbfile = '' 
-    DB_NULL = 'N/A'
+    NULL_TAG = 'N/A'
+    DB_NULL = 'NULL'
+
+    @staticmethod
+    def verify():
+        if os.path.exists(Database.getdbpath()):
+            return True
+        else:
+            return False
 
     @staticmethod
     def delete():
@@ -334,24 +342,28 @@ class Database:
         Database.connect()
 
     @staticmethod
-    def addrow(table: str, vals: list[str]):
+    def addrow(table: str, vals: list[str], cols: list[str]=[], ignore=False):
         if not vals:
             return
+        if not cols:
+            columns = ''
+        else:
+            cols = [f'"{c}"' for c in cols]
+            columns = '(' + ','.join(cols) + ')'
         vals = [f'"{v}"' for v in vals]
         values = '(' + ','.join(vals) + ')'
+        if ignore:
+            ignorestm = 'OR IGNORE'
+        else:
+            ignorestm = ''
         try:
             cmd = f"""
-            INSERT INTO {table} VALUES {values}
+            INSERT {ignorestm} INTO {table} {columns} VALUES {values}
             """
             windows.Logger.log(f'SQL cmd: "{cmd}"')
             Database.dbcursor.execute(cmd)
             Database.dbcon.commit()
-            cmd = f"""
-            SELECT * FROM {table}
-            WHERE id = last_inster_rowid()
-            """
-            windows.Logger.log(f'SQL cmd: "{cmd}"')
-            return Database.dbcursor.execute(cmd).fetchall()
+            return Database.dbcursor.lastrowid
         except Exception as e:
             windows.Logger.log(f'SQL error: {e}')
     
@@ -382,6 +394,22 @@ class Database:
             """
             windows.Logger.log(f'SQL cmd: "{cmd}"')
             #cmd = ' '.join(cmd.split())
+            return Database.dbcursor.execute(cmd).fetchall()
+        except Exception as e:
+            windows.Logger.log(f'SQL error: {e}')
+        return ''
+
+    @staticmethod
+    def gettags(taskid):
+        try:
+            cmd = f"""
+            SELECT {DBTables.tags}.tag
+            FROM {DBTables.tags}
+            JOIN {DBTables.junction}
+            ON {DBTables.tags}.id = {DBTables.junction}.tag_id
+            WHERE {DBTables.junction}.task_id = {taskid}
+            """
+            windows.Logger.log(f'SQL cmd: "{cmd}"')
             return Database.dbcursor.execute(cmd).fetchall()
         except Exception as e:
             windows.Logger.log(f'SQL error: {e}')
@@ -469,6 +497,8 @@ class Manager:
 
     @staticmethod
     def start():
+        if not Database.verify():
+            raise Exception('Database not created')
         Database.setup()
         try:
             if os.path.exists('report.pref'):
@@ -502,12 +532,14 @@ class Manager:
             if tag:
                 dbtag = tag
             else:
-                dbtag = Database.DB_NULL
+                dbtag = Database.NULL_TAG
+            cols = ['date', 'task']
             row = [Manager.datetodbformat(day), t.strip()]
-            taskid = Database.addrow(DBTables.tasks, row)
+            taskid = Database.addrow(DBTables.tasks, row, cols)
             windows.Logger.log(f'task id: {taskid}')
+            cols = ['tag']
             row = [dbtag]
-            tagid = Database.addrow(DBTables.tags, row)
+            tagid = Database.addrow(DBTables.tags, row, cols, ignore=True)
             windows.Logger.log(f'task id: {tagid}')
             if taskid != None and tagid != None:
                 row = [str(taskid), str(tagid)]
@@ -544,6 +576,7 @@ class Manager:
     
     @staticmethod
     def getreport(date=None, period='week', groupby=''):
+        windows.Logger.log(f'Get report for date:{date} period:{period} groupby:{groupby}')
         if not date:
             date = Manager.currentday
         if period == 'week':
@@ -553,27 +586,39 @@ class Manager:
         start = Manager.datetodbformat(start)
         end = Manager.datetodbformat(end)
         tasks = Database.gettasks(start, end)
+        tags = {}
+        for task in tasks:
+            taskid = task[0]
+            rows = Database.gettags(task[0])
+            if not rows:
+                continue
+            tags[taskid] = rows
+        windows.Logger.log(f'New result format tasks: {tasks}')
+        windows.Logger.log(f'New result format tags: {tags}')
         if groupby == 'tag':
-            tasks = Manager.organizetasksbytag(tasks)
+            tasks = Manager.organizetasksbytag(tasks, tags)
         else:
-            tasks = Manager.organizetasksdate(tasks)
+            tasks = Manager.organizetasksbydate(tasks, tags)
         return tasks
 
     @staticmethod
-    def organizetasksbytag(data):
-        tasks = {}
-        for data, tag, task in data:
+    def organizetasksbytag(tasks, tags):
+        data = {}
+        '''
+        for taskid,date,task in tasks:
             if tag in tasks:
                 tasks[tag].append(task)
             else:
                 tasks[tag] = [task]
         tasks = {tag: tasks for tag,tasks in sorted(tasks.items())}
-        return tasks
+        '''
+        return data 
 
     @staticmethod
-    def organizetasksdate(data):
+    def organizetasksbydate(tasks, tags):
         tasks = {}
-        for date, tag, task in data:
+        '''
+        for _,date,task in data:
             # check if date has been added
             if date in tasks:
                 # if tag has been added
@@ -586,6 +631,7 @@ class Manager:
             else:
                 # or add a new date slot and dict
                 tasks[date] = {tag: [task]}
+        '''
         return tasks
 
     @staticmethod
@@ -594,7 +640,6 @@ class Manager:
             date = Manager.currentday
         start = date - datetime.timedelta(days=date.weekday())
         end = start + datetime.timedelta(days=6)
-        windows.Logger.log(f'Get tasks for week of {start} -> {end}')
         return start, end
     
     @staticmethod
@@ -621,13 +666,14 @@ class SideMenu(windows.Window):
         self.searchresults = []
 
     def displayday(self, row, col, maxrow, maxcol, date, data):
+        windows.Logger.log(f'Display day {date}')
         date = Manager.dbformattodate(date)
         if row < maxrow:
             self.win.addstr(row, col, date, curses.A_BOLD | curses.A_UNDERLINE)
             row += 1
         for tag,tasks in data.items():
             tab = ''
-            if tag != Database.DB_NULL:
+            if tag != Database.NULL_TAG:
                 if row < maxrow:
                     self.win.addstr(row, col+2, tag, curses.A_REVERSE)
                     row += 1
@@ -695,6 +741,7 @@ class SideMenu(windows.Window):
         weekmark = f'{start} - {end}'
         self.win.addstr(2, self.width-len(weekmark)-5, weekmark, curses.A_REVERSE)
         tasks = Manager.getreport(Manager.viewingdate, groupby='date')
+        windows.Logger.log(f'Get report tasks: {tasks}')
         er = 3
         for date, vals in tasks.items():
             er,_ = self.displayday(er, 0, self.length-3, self.width, date, vals)
@@ -936,7 +983,7 @@ class EditTask(windows.Window):
         else:
             tasks = Manager.gettasks(Manager.viewingdate, selection)
             library = {}
-            tagtoedit = Database.DB_NULL
+            tagtoedit = Database.NULL_TAG
             for task in tasks:
                 if task[1] in library:
                     library[task[1]].append(task[2])
@@ -953,13 +1000,13 @@ class EditTask(windows.Window):
                 self.done = True
                 return
             if not tagtoedit:
-                tagtoedit = Database.DB_NULL
+                tagtoedit = Database.NULL_TAG
             if tagtoedit in library:
                 text = library[tagtoedit]
             else:
                 text = ''
             text = '- ' + '\n- '.join(text)
-            if tagtoedit == Database.DB_NULL:
+            if tagtoedit == Database.NULL_TAG:
                 tagtext = 'no tag'
             else:
                 tagtext = tagtoedit
