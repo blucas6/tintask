@@ -1,4 +1,6 @@
 import calendar
+import curses.ascii
+import curses.textpad
 import math
 import curses
 import windows
@@ -88,6 +90,93 @@ class ReportData:
                         self.body.append(f'  - {task}')
 
             self.body.append(line)
+
+class Mail(windows.Window):
+    def __init__(self, row, col, length, width):
+        super().__init__(row, col, length, width)
+        self.dosend = False
+        self.status = ['Ready to send', 'Sending', 'Sent!', 'Failed to send!']
+        self.statusix = 0
+
+    def displaystatus(self, row):
+        maxlen = max([len(smsgs) for smsgs in self.status])
+        msg = f'Status: '
+        self.win.addstr(row, self.width-2-maxlen, ' '*maxlen)
+        self.win.addstr(row, self.width-2-len(msg)-maxlen, msg)
+        self.win.addstr(row, self.width-2-maxlen, self.status[self.statusix])
+
+    def refresh(self, reportdata: ReportData=None):
+        self.win.addstr(1, 1, 'Outlook Email Report')
+        for ix in range(self.width-3):
+            self.win.addch(2, 1+ix, curses.ACS_HLINE)
+        msg = f'<esc> to quit'
+        self.win.addstr(self.length-2, self.width-len(msg)-3, msg)
+        if not self.dosend:
+            attrib1 = curses.A_BOLD | curses.A_UNDERLINE
+            attrib2 = curses.A_NORMAL
+        else:
+            attrib1 = curses.A_REVERSE
+            attrib2 = curses.A_REVERSE
+        row = 3
+        col = 1
+        if reportdata != None:
+            text = f'Send to: {reportdata.mailto}'
+            spliced,am = Manager.splice(text, self.width-2-col)
+            for ix,txt in enumerate(spliced):
+                self.win.addstr(row+ix, col, txt)
+            row += am
+            text = f'Subject: {reportdata.subject}'
+            spliced,am = Manager.splice(text, self.width-2-col)
+            for ix,txt in enumerate(spliced):
+                self.win.addstr(row+ix, col, txt)
+            row += am + 1
+            self.displaystatus(row)
+            self.win.addstr(row, col, 'Actions:', curses.A_UNDERLINE)
+            row += 1
+            self.win.addstr(row, col+1, 'M', attrib1)
+            self.win.addstr(row, col+2, 'ail now', attrib2)
+            self.win.noutrefresh()
+
+    def draw(self):
+        curses.textpad.rectangle(self.win, 0, 0, self.length-2, self.width-2)
+        if sys.platform != 'win32':
+            self.win.addstr(1, 1, 'Currently unavailable for non Windows Operating Systems')
+        else:
+            self.refresh()
+            try:
+                reportdata = Manager.loadreportdata()[0]
+            except Exception as e:
+                windows.Logger.log(f'Error loading report data: {e}')
+                self.win.addstr(3, 1, f'Failed to create the email, please check the logs')
+                return
+            self.refresh(reportdata)
+            if self.dosend:
+                StatusBar.update(10, 'Sending Email ...')
+                try:
+                    curses.napms(200)
+                    Manager.sendemail(reportdata)
+                    self.done = True
+                except Exception as e:
+                    self.statusix = 3
+                    windows.Logger.log(f'Error sending the email -> {e}')
+                    self.dosend = False
+                    StatusBar.update(0)
+                    self.refresh(reportdata)
+                    return
+                StatusBar.update(100)
+                curses.napms(100)
+                self.statusix = 2
+                self.refresh(reportdata)
+                curses.doupdate()
+                curses.napms(200)
+
+    def input(self, ch):
+        if ch == curses.ascii.ESC:
+            return None,windows.Waction.POP
+        elif ch == ord('m'):
+            self.dosend = True
+            self.statusix = 1
+        return None,None
 
 class DBTables:
     #tasks = 'tasks'
@@ -322,40 +411,52 @@ class Manager:
     BRIEF_FORMAT = '%m/%d'
     currentday = datetime.datetime.now()
     viewingdate = datetime.datetime.now()
+    reportpref = ''
+
+    @staticmethod
+    def splice(text, width):
+        spliced = [text[i:i+width] for i in range(0, len(text), width)]
+        am = Manager.wrap(text, width)
+        return spliced, am
 
     @staticmethod
     def wrap(text, width):
         am = math.ceil(len(text) / width)
-        #if len(text) > am * width:
-        #    am += 1
+        if am == 0:
+            return 1
         return am
 
     @staticmethod
-    def sendEmail():
+    def loadreportdata():
+        mytasks = Manager.getreport(Manager.viewingdate, groupby='tag')
+        windows.Logger.log(f'report tasks {mytasks}')
+        start,end = Manager.getweek(Manager.viewingdate)
+        start = Manager.datetobriefformat(start)
+        end = Manager.datetobriefformat(end)
+        return ReportData(mytasks, start, end, Manager.reportpref)
+
+    @staticmethod
+    def sendemail(reportdata):
         if sys.platform != 'win32':
             return
         try:
             outlook = win32.Dispatch('outlook.application')
             mail = outlook.CreateItem(0)
-            mail.To = self.createMailtoList()
-            mail.Subject = self.createSubject()
-            mail.Body = self.createReportDB()
+            mail.To = reportdata.mailto
+            mail.Subject = reportdata.subject
+            body = '\n'.join(reportdata.body)
+            mail.Body = body
+            mail.Send()
             # mail.HTMLBody = self.createReport(HTML=True)
-            send = input('Enter S to send. Enter anything else to quit\nChoice: ')
         except Exception as e:
-            print(f'Failed to create email -> {e}')
-            input('<enter>')
-        else:
-            if send == 'S':
-                try:
-                    mail.Send()
-                    self.sendAnimation()
-                except Exception as e:
-                    print(f'FAILED to send! -> ({e})')
-                    input('<enter>')
-            else:
-                print('Exiting...')
-
+            windows.Logger.log(f"""
+            Email:
+                Mailto:{reportdata.mailto}
+                Subject:{reportdata.subject}
+                Body:{body}
+            """)
+            windows.Logger.log(f'Error: failed to create email -> {e}')
+            raise Exception(e)
 
     @staticmethod
     def datetobriefformat(dobj):
@@ -376,6 +477,13 @@ class Manager:
         Database.setup()
         if not Database.sanitycheck():
             raise Exception(f'Error: Databases not set up properly')
+        try:
+            if os.path.exists('report.pref'):
+                with open('report.pref', 'r') as rp:
+                    Manager.reportpref = rp.readlines()
+            windows.Logger.log(f'Loaded preferences file ->\n{Manager.reportpref}')
+        except Exception as e:
+            windows.Logger.log(f'Error: Failed to load preferences file! -> {e}')
 
     @staticmethod
     def datetodbformat(dobj):
@@ -515,17 +623,9 @@ class SideMenu(windows.Window):
         super().__init__(row, col, length, width)
         self.filtering = False
         self.filter = ''
-        self.reportpref = ''
         self.searching = False
         self.searchterm = ''
         self.searchresults = []
-        try:
-            if os.path.exists('report.pref'):
-                with open('report.pref', 'r') as rp:
-                    self.reportpref = rp.readlines()
-            windows.Logger.log(f'Loaded preferences file ->\n{self.reportpref}')
-        except Exception as e:
-            windows.Logger.log(f'Error: Failed to load preferences file! -> {e}')
 
     def displayday(self, row, col, maxrow, maxcol, date, data):
         date = Manager.dbformattodate(date)
@@ -547,36 +647,6 @@ class SideMenu(windows.Window):
                 row += am
         return row,col
 
-    def wrap(self, tab, task):
-        cutat = self.width-tab
-        newtask = task[:cutat]
-        am = 0
-        while True:
-            end = cutat + self.width
-            if end < len(task):
-                #newtask += '\n' + task[cutat:end]
-                newtask += task[cutat:end]
-                cutat += self.width
-                am += 1
-            else:
-                extra = task[cutat:]
-                if extra:
-                    #newtask += '\n' + extra
-                    newtask += extra
-                    am += 1
-                break
-        return newtask, am
-    
-    def tab(self, name, selected, pos):
-        if selected:
-            highlight = curses.A_BOLD
-        else:
-            highlight = curses.A_NORMAL
-        self.win.addstr(pos[0], pos[1], '/ ', highlight)
-        self.win.addstr(pos[0], pos[1]+2, name[0], curses.A_BOLD | curses.A_UNDERLINE)
-        self.win.addstr(pos[0], pos[1]+3, name[1:]+' \\', highlight)
-        return pos[0], pos[1]+2+len(name)+2
-
     def menu(self):
         tasks = False
         calendar = False
@@ -590,11 +660,12 @@ class SideMenu(windows.Window):
             report = True
         elif self.mode == 'search':
             search = True
-        er,ec = self.tab('Tasks', tasks, (0,0))
-        er,ec = self.tab('Calendar', calendar, (er,ec))
-        er,ec = self.tab('Report', report, (er,ec))
-        _,_ = self.tab('Search', search, (er,ec))
-        self.win.addstr(1, 0, '-'*(self.width-1))
+        er,ec = windows.tab(self.win, 'Tasks', tasks, (0,0))
+        er,ec = windows.tab(self.win, 'Calendar', calendar, (er,ec))
+        er,ec = windows.tab(self.win, 'Report', report, (er,ec))
+        _,_ = windows.tab(self.win, 'Search', search, (er,ec))
+        for ix in range(self.width-1):
+            self.win.addch(1, ix, curses.ACS_HLINE, curses.A_BOLD)
 
     def search(self):
         self.win.addstr(2, 2, 'S', curses.A_UNDERLINE)
@@ -683,31 +754,32 @@ class SideMenu(windows.Window):
 
     def report(self):
         try:
-            mytasks = Manager.getreport(Manager.viewingdate, groupby='tag')
-            windows.Logger.log(f'report tasks {mytasks}')
-            start,end = Manager.getweek(Manager.viewingdate)
-            start = Manager.datetobriefformat(start)
-            end = Manager.datetobriefformat(end)
-            reportdata = ReportData(mytasks, start, end, self.reportpref)
+            reportdata = Manager.loadreportdata()
             row = 2
             col = 1
             if reportdata.mailto:
-                self.win.addstr(row, col, f'To: {reportdata.mailto}')
-                row += 1
+                text = f'To: {reportdata.mailto}'
+                am = Manager.wrap(text, self.width)
+                self.win.addstr(row, col, text)
+                row += am
             if reportdata.subject:
-                self.win.addstr(row, col, f'Subject: {reportdata.subject}')
-                row += 1
+                text = f'Subject: {reportdata.subject}'
+                am = Manager.wrap(text, self.width)
+                self.win.addstr(row, col, text)
+                row += am
             row += 1
-            for ix,line in enumerate(reportdata.body):
-                text,am = self.wrap(1, line)
-                self.win.addstr(row+ix, col, text)
+            windows.Logger.log(reportdata.body)
+            for line in reportdata.body:
+                am = Manager.wrap(line, self.width)
+                self.win.addstr(row, col, line)
                 row += am
         except Exception as e:
             self.win.addstr(row, col, 'Unable to load report.pref file, check log for failures')
             windows.Logger.log(f'Error (report.pref): {e}')
 
     def footer(self, increment=''):
-        self.win.addstr(self.length-1, 0, '-'*(self.width-1))
+        for ix in range(self.width-1):
+            self.win.addch(self.length-1, ix, curses.ACS_HLINE, curses.A_BOLD)
         if increment:
             self.win.addstr(self.length-2, 0, '< ')
             self.win.addstr(self.length-2, 2, 'P', curses.A_BOLD | curses.A_UNDERLINE)
@@ -760,34 +832,38 @@ class SideMenu(windows.Window):
         return None,None
 
 class StatusBar:
-    mrow = 0
-    mcol = 0
     delay = 100
     bar = windows.Bar(10)
-    stdscr: curses.window = None
+    win: curses.window = None
 
-    @staticmethod
-    def setup(termrows, termcols, stdscr):
-        StatusBar.mrow = termrows
-        StatusBar.mcol = termcols
-        StatusBar.stdscr = stdscr
+    @classmethod
+    def setup(cls, length, width, pos):
+        StatusBar.length = length 
+        StatusBar.width = width 
+        try:
+            StatusBar.win = curses.newwin(length, width, pos[0], pos[1])
+        except Exception as e:
+            StatusBar.win = None
+            windows.Logger.log(f'ERROR: StatusBar failed to create window! -> {e}')
+            raise Exception(e)
+        windows.Logger.log(f'{cls.__name__}:')
+        windows.Logger.log(f'\tRows: {length} Cols: {width}')
+        windows.Logger.log(f'\tStartR: {pos[0]} StartC: {pos[1]}')
 
     @staticmethod
     def update(progress=0, message=''):
-        StatusBar.stdscr.addstr(StatusBar.mrow, 0, ' '*StatusBar.mcol)
-        StatusBar.stdscr.addstr(
-                StatusBar.mrow,
-                StatusBar.mcol-StatusBar.bar.totalsize,
-                StatusBar.bar.update(0))
-        StatusBar.stdscr.addstr(StatusBar.mrow, StatusBar.mcol-StatusBar.bar.totalsize,
-                                    StatusBar.bar.update(progress))
+        StatusBar.win.addstr(0, 0, ' '*(StatusBar.width-1))
+        StatusBar.win.addstr(0,
+                             StatusBar.width-StatusBar.bar.totalsize-1,
+                             StatusBar.bar.update(0))
+        StatusBar.win.addstr(0,
+                             StatusBar.width-StatusBar.bar.totalsize-1,
+                             StatusBar.bar.update(progress))
         if message:
             decal = StatusBar.bar.totalsize+len(message)+1
-            if StatusBar.mcol-decal >= 0:
-                StatusBar.stdscr.addstr(StatusBar.mrow,
-                                        StatusBar.mcol-decal,
-                                        message)
-        StatusBar.stdscr.noutrefresh()
+            if StatusBar.width-decal >= 0:
+                StatusBar.win.addstr(0, StatusBar.width-decal-1, message)
+        StatusBar.win.noutrefresh()
         curses.doupdate()
 
 class AddTask(windows.Window):
@@ -930,7 +1006,7 @@ class TinTask(windows.Window):
         coltab = 2
         er,_ = windows.option(self.win, 'A', 'Add a task', (er+1,coltab))
         er,_ = windows.option(self.win, 'E', 'Edit a date', (er,coltab))
-        er,_ = windows.option(self.win, 'S', 'Send your task list', (er,coltab))
+        er,_ = windows.option(self.win, 'M', 'Mail your tasks', (er,coltab))
         er,_ = windows.option(self.win, 'X', 'Configurations', (er,coltab))
         er,_ = windows.option(self.win, 'Q', 'Quit', (er,coltab))
         self.erow = er
@@ -948,5 +1024,9 @@ class TinTask(windows.Window):
             return EditTask(self.erow,
                             0,
                             self.length-self.erow, self.width), windows.Waction.PUSH
+        elif ch == ord('m'):
+            return Mail(self.erow+1,
+                             0,
+                             self.length-self.erow, self.width), windows.Waction.PUSH
         return None, None
 

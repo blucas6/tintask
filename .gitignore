@@ -9,3 +9,4 @@ dblog.txt
 *.db
 *.csv
 *.log
+*.pref

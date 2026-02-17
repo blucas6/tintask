@@ -21,7 +21,7 @@ class Engine:
         print()
 
     @staticmethod
-    def setup(stdscr):
+    def setup():
         end_column = round(curses.COLS/2)
         minimum_columns = 40
         if end_column < minimum_columns:
@@ -34,7 +34,7 @@ class Engine:
             sidemenu.mode = 'tasks'
             Engine.winstack.append(sidemenu)
         main = tintask.TinTask(0, 0, curses.LINES-1, end_column)
-        tintask.StatusBar.setup(curses.LINES-1, curses.COLS-1, stdscr)
+        tintask.StatusBar.setup(1, curses.COLS-1, (curses.LINES-1,0))
         Engine.winstack.append(main)
         install = tintask.Install(0, 0, curses.LINES, curses.COLS)
         if not install.verify():
@@ -51,7 +51,7 @@ class Engine:
         windows.Logger.log(f'Terminal size [{curses.LINES},{curses.COLS}]')
         stdscr.refresh()
         try:
-            Engine.setup(stdscr)
+            Engine.setup()
         except Exception as e:
             windows.Logger.log(f'Engine exception: {e}')
             Engine.errormsg()
