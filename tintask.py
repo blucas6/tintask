@@ -84,7 +84,7 @@ class ReportData:
                         if tag == tagtext:
                             continue
                     if showtags:
-                        if tag != Database.DB_NULL:
+                        if tag != Database.NULL_TAG:
                             self.body.append(f'  {tag}')
                     for task in tasks:
                         self.body.append(f'  - {task}')
@@ -109,11 +109,10 @@ class Mail(windows.Window):
         msg = f'<esc> to close'
         self.win.addstr(self.length-2, self.width-len(msg)-3, msg)
 
-    def refresh(self, reportdata: ReportData=None):
+    def displaywindow(self, reportdata: ReportData | None = None):
         self.win.addstr(1, 1, 'Outlook Email Report')
         self.footer()
-        for ix in range(self.width-3):
-            self.win.addch(2, 1+ix, curses.ACS_HLINE)
+        windows.separator(self.win, self.width-3, (2,1))
         if not self.dosend:
             attrib1 = curses.A_BOLD | curses.A_UNDERLINE
             attrib2 = curses.A_NORMAL
@@ -149,14 +148,14 @@ class Mail(windows.Window):
                 self.win.addstr(1+ix, 1, txt)
             self.footer()
         else:
-            self.refresh()
+            self.displaywindow()
             try:
                 reportdata = Manager.loadreportdata()[0]
             except Exception as e:
                 windows.Logger.log(f'Error loading report data: {e}')
                 self.win.addstr(3, 1, f'Failed to create the email, please check the logs')
                 return
-            self.refresh(reportdata)
+            self.displaywindow(reportdata)
             if self.dosend:
                 StatusBar.update(10, 'Sending Email ...')
                 try:
@@ -168,12 +167,12 @@ class Mail(windows.Window):
                     windows.Logger.log(f'Error sending the email -> {e}')
                     self.dosend = False
                     StatusBar.update(0)
-                    self.refresh(reportdata)
+                    self.displaywindow(reportdata)
                     return
                 StatusBar.update(100)
                 curses.napms(100)
                 self.statusix = 2
-                self.refresh(reportdata)
+                self.displaywindow(reportdata)
                 curses.doupdate()
                 curses.napms(200)
 
@@ -249,7 +248,7 @@ class Database:
     dbcon: sqlite3.Connection = None
     dbcursor: sqlite3.Cursor = None
     dbfile = '' 
-    DB_NULL = 'N/A'
+    NULL_TAG = 'N/A'
 
     @staticmethod
     def verify():
@@ -494,7 +493,7 @@ class Manager:
             if tag:
                 dbtag = tag
             else:
-                dbtag = Database.DB_NULL
+                dbtag = Database.NULL_TAG
             data = [Manager.datetodbformat(day), dbtag, t.strip()]
             Database.addrow(DBTables.tasks, data)
 
@@ -579,7 +578,6 @@ class Manager:
             date = Manager.currentday
         start = date - datetime.timedelta(days=date.weekday())
         end = start + datetime.timedelta(days=6)
-        windows.Logger.log(f'Get tasks for week of {start} -> {end}')
         return start, end
     
     @staticmethod
@@ -589,7 +587,6 @@ class Manager:
         start = date.replace(day=1)
         end = calendar.monthrange(date.year, date.month)[1]
         end = datetime.date(date.year, date.month, end)
-        windows.Logger.log(f'Get tasks for month of {start} -> {end}')
         return start, end
 
     @staticmethod
@@ -612,7 +609,7 @@ class SideMenu(windows.Window):
             row += 1
         for tag,tasks in data.items():
             tab = ''
-            if tag != Database.DB_NULL:
+            if tag != Database.NULL_TAG:
                 if row < maxrow:
                     self.win.addstr(row, col+2, tag, curses.A_REVERSE)
                     row += 1
@@ -650,7 +647,7 @@ class SideMenu(windows.Window):
         self.win.addstr(2, 3, 'earch:')
         self.win.addstr(2, 10, self.searchterm, curses.A_REVERSE)
         if self.searching:
-            edit = windows.Editor(1, 20, (self.row+2,self.col+10))
+            edit = windows.Editor((self.row+2,self.col+10), 1, 20)
             searchterm = edit.gettext()
             if searchterm:
                 self.searchterm = searchterm
@@ -689,7 +686,7 @@ class SideMenu(windows.Window):
         self.win.addstr(2, 3, 'ilter:')
         self.win.addstr(2, 10, self.filter, curses.A_REVERSE)
         if self.filtering:
-            edit = windows.Editor(1, 20, (self.row+2,self.col+10))
+            edit = windows.Editor((self.row+2,self.col+10), 1, 20)
             filter = edit.gettext()
             if filter:
                 self.filter = filter
@@ -857,9 +854,9 @@ class AddTask(windows.Window):
         while True:
             self.win.addstr(row, tab, '> ')
             self.win.noutrefresh()
-            edit = windows.Editor(self.length-row,
-                                  self.width-col,
-                                  (self.row+row,self.col+col))
+            edit = windows.Editor((self.row+row,self.col+col),
+                                  self.length-row,
+                                  self.width-col)
             task = edit.gettext()
             if task:
                 tasks.append(task)
@@ -875,9 +872,9 @@ class AddTask(windows.Window):
             self.win.addstr(row+1, tab, '>')
             self.win.noutrefresh()
             row += 1
-            edit = windows.Editor(self.length-row,
-                                  self.width-col,
-                                  (self.row+row,self.col+col))
+            edit = windows.Editor((self.row+row,self.col+col),
+                                  self.length-row,
+                                  self.width-col)
             tag = edit.gettext()
             if not tag:
                 tag = ''
@@ -891,6 +888,112 @@ class AddTask(windows.Window):
     def input(self, ch):
         return None, windows.Waction.POP
 
+class MenuState:
+    EDITTAG = 'Edit Tag'
+    EDITTASK = 'Typing'
+    DONE = 'Done? <tab>'
+
+class AddMenu(windows.Window):
+    def __init__(self, row, col, length, width):
+        super().__init__(row, col, length, width)
+        self.status = MenuState.DONE
+        self.tag = ''
+        self.tasks = []
+        self.rawtasks = ''
+        self.taglb = 'Tag: '
+        self.tasklb = 'Tasks: '
+
+    def displaywindow(self):
+        self.win.erase()
+        curses.textpad.rectangle(self.win, 0, 0, self.length-2, self.width-2)
+        self.header()
+        self.footer()
+        row = 3
+        col = 1
+        self.win.addstr(row, col, self.taglb[0], curses.A_UNDERLINE)
+        self.win.addstr(row, col+1, self.taglb[1:])
+        if self.tag:
+            self.win.addstr(row, col+len(self.taglb), self.tag, curses.A_REVERSE)
+        row += 1
+        self.win.addstr(row, col, f'Tasks: ')
+        if self.tasks:
+            for task in self.tasks:
+                splice,am = Manager.splice(task, self.width-2-col)
+                for jx,txt in enumerate(splice):
+                    self.win.addstr(row+jx, col, txt)
+                row += am
+        row += 1
+        self.win.noutrefresh()
+
+    def draw(self):
+        self.displaywindow()
+        if self.status == MenuState.EDITTAG:
+            self.status = MenuState.DONE
+            edit = windows.Editor((self.row+3,self.col+1+len(self.taglb)), 1, self.width-2-len(self.taglb)-self.col-1)
+            text = edit.gettext()
+            if not edit.cancelled:
+                self.tag = text
+            else:
+                self.tag = ''
+            self.displaywindow()
+        elif self.status == MenuState.EDITTASK:
+            self.status = MenuState.DONE
+            if self.rawtasks:
+                msg = self.rawtasks
+            else:
+                msg = '- '
+            edit = windows.Editor((self.row+5,self.col+1), self.length-7, self.width-3, msg, double=True)
+            text = edit.gettext()
+            if not edit.cancelled and text:
+                self.rawtasks = text
+                self.tasks = text.split('-')
+            self.displaywindow()
+
+    def header(self):
+        date = Manager.currentday.strftime('%m/%d')
+        self.win.addstr(1, 2, f'Add Task')
+        self.win.addstr(1, self.width-len(str(date))-3, str(date), curses.A_REVERSE)
+        self.displaystatus()
+        windows.separator(self.win, self.width, (2,1))
+
+    def footer(self):
+        msg = f'<esc> to close'
+        self.win.addstr(self.length-2, self.width-len(msg)-3, msg)
+
+    def displaystatus(self):
+        self.win.addstr(1, int(self.width/2)-int(len(self.status)/2)-1, f'{self.status}')
+
+    def sendtasks(self):
+        if self.tasks:
+            windows.Logger.log(f'Sending tasks: {self.tag} {self.tasks}')
+            if not self.tag:
+                self.tag = Database.NULL_TAG
+            StatusBar.update(10, 'Adding task to database...')
+            curses.napms(100)
+            Manager.addtasks(Manager.currentday, self.tasks, self.tag)
+            StatusBar.update(100)
+            curses.napms(100)
+
+    def input(self, ch):
+        if ch == curses.ascii.ESC:
+            return None,windows.Waction.POP
+        elif self.status == MenuState.DONE:
+            if ch == curses.ascii.NL:
+                self.status = MenuState.EDITTASK
+            elif ch == curses.ascii.TAB:
+                self.sendtasks()
+                return None,windows.Waction.POP
+            elif ch == ord('t'):
+                self.status = MenuState.EDITTAG
+        return None,None
+
+class EditMenu(windows.Window):
+    def draw(self):
+        curses.textpad.rectangle(self.win, 0, 0, self.length-2, self.width-2)
+
+    def input(self, ch):
+        return None, windows.Waction.POP
+
 class EditTask(windows.Window):
     def draw(self):
         tab = 2
@@ -899,7 +1002,7 @@ class EditTask(windows.Window):
         self.win.noutrefresh()
         row = 3
         col = tab+2
-        edit = windows.Editor(self.length-row, self.width-col, (self.row+row,self.col+col))
+        edit = windows.Editor((self.row+row,self.col+col), self.length-row, self.width-col)
         choice = edit.gettext()
         if not choice or edit.cancelled:
             self.done = True
@@ -922,7 +1025,7 @@ class EditTask(windows.Window):
         else:
             tasks = Manager.gettasks(Manager.viewingdate, selection)
             library = {}
-            tagtoedit = Database.DB_NULL
+            tagtoedit = Database.NULL_TAG
             for task in tasks:
                 if task[1] in library:
                     library[task[1]].append(task[2])
@@ -933,19 +1036,19 @@ class EditTask(windows.Window):
             self.win.addstr(row+2, tab, '> ')
             self.win.noutrefresh()
             row += 2
-            edit = windows.Editor(self.length-row, self.width-col, (self.row+row,self.col+col))
+            edit = windows.Editor((self.row+row,self.col+col), self.length-row, self.width-col)
             tagtoedit = edit.gettext()
             if edit.cancelled:
                 self.done = True
                 return
             if not tagtoedit:
-                tagtoedit = Database.DB_NULL
+                tagtoedit = Database.NULL_TAG
             if tagtoedit in library:
                 text = library[tagtoedit]
             else:
                 text = ''
             text = '- ' + '\n- '.join(text)
-            if tagtoedit == Database.DB_NULL:
+            if tagtoedit == Database.NULL_TAG:
                 tagtext = 'no tag'
             else:
                 tagtext = tagtoedit
@@ -953,9 +1056,9 @@ class EditTask(windows.Window):
             self.win.addstr(row+1, tab, '> ')
             row += 1
             self.win.noutrefresh()
-            edit = windows.Editor(self.length-row,
+            edit = windows.Editor((self.row+row,self.col+col),
+                                  self.length-row,
                                   self.width-col,
-                                  (self.row+row,self.col+col),
                                   text, double=True)
             text = edit.gettext()
             if text and not edit.cancelled:
@@ -995,14 +1098,22 @@ class TinTask(windows.Window):
         if ch == ord('q'):
             raise SystemExit
         elif ch == ord('a'):
-            return AddTask(self.erow,
+            #return AddTask(self.erow,
+            #              0,
+            #              self.length-self.erow,
+            #              self.width), windows.Waction.PUSH
+            return AddMenu(self.erow+1,
                            0,
                            self.length-self.erow,
                            self.width), windows.Waction.PUSH
         elif ch == ord('e'):
-            return EditTask(self.erow,
+            #return EditTask(self.erow,
+            #                0,
+            #                self.length-self.erow, self.width), windows.Waction.PUSH
+            return EditMenu(self.erow+1,
                             0,
-                            self.length-self.erow, self.width), windows.Waction.PUSH
+                            self.length-self.erow,
+                            self.width), windows.Waction.PUSH
         elif ch == ord('m'):
             return Mail(self.erow+1,
                              0,
