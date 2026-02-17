@@ -105,12 +105,15 @@ class Mail(windows.Window):
         self.win.addstr(row, self.width-2-len(msg)-maxlen, msg)
         self.win.addstr(row, self.width-2-maxlen, self.status[self.statusix])
 
+    def footer(self):
+        msg = f'<esc> to close'
+        self.win.addstr(self.length-2, self.width-len(msg)-3, msg)
+
     def refresh(self, reportdata: ReportData=None):
         self.win.addstr(1, 1, 'Outlook Email Report')
+        self.footer()
         for ix in range(self.width-3):
             self.win.addch(2, 1+ix, curses.ACS_HLINE)
-        msg = f'<esc> to quit'
-        self.win.addstr(self.length-2, self.width-len(msg)-3, msg)
         if not self.dosend:
             attrib1 = curses.A_BOLD | curses.A_UNDERLINE
             attrib2 = curses.A_NORMAL
@@ -140,7 +143,11 @@ class Mail(windows.Window):
     def draw(self):
         curses.textpad.rectangle(self.win, 0, 0, self.length-2, self.width-2)
         if sys.platform != 'win32':
-            self.win.addstr(1, 1, 'Currently unavailable for non Windows Operating Systems')
+            text = 'Currently unavailable for non Windows Operating Systems'
+            spliced,_ = Manager.splice(text, self.width-3)
+            for ix,txt in enumerate(spliced):
+                self.win.addstr(1+ix, 1, txt)
+            self.footer()
         else:
             self.refresh()
             try:
