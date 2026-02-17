@@ -90,12 +90,14 @@ class ReportData:
             self.body.append(line)
 
 class DBTables:
+    #tasks = 'tasks'
+    #tasks_columns = 'date DATE, tag TEXT, task TEXT'
     tasks = 'tasks'
-    config = 'config'
+    tasks_columns = 'id INTEGER PRIMARY KEY, date DATE, task TEXT'
     tags = 'tags'
-    tasks_columns = 'date DATE, tag TEXT, task TEXT'
-    tags_columns = 'tag TEXT, active bool'
-    config_columns = 'mailto TEXT, subject TEXT, footer TEXT, signature TEXT'
+    tags_columns = 'id INTEGER PRIMARY KEY, tag TEXT'
+    resources = 'resources'
+    resources_columns = 'task_id INTEGER, tag_id INTEGER, FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE, FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE'
 
 class Install(windows.Window):
     def __init__(self, row, col, length, width):
@@ -112,10 +114,10 @@ class Install(windows.Window):
     def setuptables(self):
         if not Database.checktable(DBTables.tasks):
             Database.createtable(DBTables.tasks, DBTables.tasks_columns)
-        if not Database.checktable(DBTables.config):
-            Database.createtable(DBTables.config, DBTables.config_columns)
         if not Database.checktable(DBTables.tags):
             Database.createtable(DBTables.tags, DBTables.tags_columns)
+        if not Database.checktable(DBTables.resources):
+            Database.createtable(DBTables.resources, DBTables.resources_columns)
     
     def step(self, func, msg):
         windows.Logger.log(f'Install step: {msg}')
@@ -179,9 +181,9 @@ class Database:
     def sanitycheck():
         if not Database.checktable(DBTables.tasks):
             return False
-        if not Database.checktable(DBTables.config):
-            return False
         if not Database.checktable(DBTables.tags):
+            return False
+        if not Database.checktable(DBTables.resources):
             return False
         return True
 
@@ -189,7 +191,7 @@ class Database:
     def createtable(table, columns):
         try:
             cmd = f"""
-            CREATE TABLE {table}({columns})
+            CREATE TABLE {table} ({columns})
             """
             windows.Logger.log(f'SQL cmd: {cmd}')
             Database.dbcon.execute(cmd)
@@ -260,6 +262,12 @@ class Database:
             windows.Logger.log(f'SQL cmd: "{cmd}"')
             Database.dbcursor.execute(cmd)
             Database.dbcon.commit()
+            cmd = f"""
+            SELECT * FROM {table}
+            WHERE id = last_inster_rowid()
+            """
+            windows.Logger.log(f'SQL cmd: "{cmd}"')
+            return Database.dbcursor.execute(cmd).fetchall()
         except Exception as e:
             windows.Logger.log(f'SQL error: {e}')
     
@@ -394,8 +402,15 @@ class Manager:
                 dbtag = tag
             else:
                 dbtag = Database.DB_NULL
-            data = [Manager.datetodbformat(day), dbtag, t.strip()]
-            Database.addrow(DBTables.tasks, data)
+            row = [Manager.datetodbformat(day), t.strip()]
+            taskid = Database.addrow(DBTables.tasks, row)
+            windows.Logger.log(f'task id: {taskid}')
+            row = [dbtag]
+            tagid = Database.addrow(DBTables.tags, row)
+            windows.Logger.log(f'task id: {tagid}')
+            if taskid != None and tagid != None:
+                row = [str(taskid), str(tagid)]
+                _ = Database.addrow(DBTables.resources, row)
 
     @staticmethod
     def shiftdate(date, selection):
