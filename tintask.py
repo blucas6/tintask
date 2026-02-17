@@ -187,11 +187,7 @@ class Mail(windows.Window):
 
 class DBTables:
     tasks = 'tasks'
-    config = 'config'
-    tags = 'tags'
     tasks_columns = 'date DATE, tag TEXT, task TEXT'
-    tags_columns = 'tag TEXT, active bool'
-    config_columns = 'mailto TEXT, subject TEXT, footer TEXT, signature TEXT'
 
 class Install(windows.Window):
     def __init__(self, row, col, length, width):
@@ -206,12 +202,7 @@ class Install(windows.Window):
         return True
 
     def setuptables(self):
-        if not Database.checktable(DBTables.tasks):
-            Database.createtable(DBTables.tasks, DBTables.tasks_columns)
-        if not Database.checktable(DBTables.config):
-            Database.createtable(DBTables.config, DBTables.config_columns)
-        if not Database.checktable(DBTables.tags):
-            Database.createtable(DBTables.tags, DBTables.tags_columns)
+        Database.createtable(DBTables.tasks, DBTables.tasks_columns)
     
     def step(self, func, msg):
         windows.Logger.log(f'Install step: {msg}')
@@ -237,8 +228,7 @@ class Install(windows.Window):
             self.step(self.setuptables, 'Making tables...')
             self.win.addstr(4, 1, ' '*50)
             self.win.addstr(4, 1, 'Final check...')
-            if not Database.sanitycheck():
-                raise Exception('Database tables could not be created!')
+            Manager.start()
             self.win.addstr(5, 1, self.bar.update(100))
             self.win.addstr(4, 1, ' '*50)
             self.win.addstr(4, 1, 'Done!')
@@ -262,6 +252,12 @@ class Database:
     DB_NULL = 'N/A'
 
     @staticmethod
+    def verify():
+        if os.path.exists(Database.getdbpath()):
+            return True
+        return False
+
+    @staticmethod
     def delete():
         try:
             dbfile = Database.getdbpath()
@@ -272,20 +268,10 @@ class Database:
             windows.Logger.log(f'Uninstalling error: {e}')
 
     @staticmethod
-    def sanitycheck():
-        if not Database.checktable(DBTables.tasks):
-            return False
-        if not Database.checktable(DBTables.config):
-            return False
-        if not Database.checktable(DBTables.tags):
-            return False
-        return True
-
-    @staticmethod
     def createtable(table, columns):
         try:
             cmd = f"""
-            CREATE TABLE {table}({columns})
+            CREATE TABLE IF NOT EXISTS {table} ({columns})
             """
             windows.Logger.log(f'SQL cmd: {cmd}')
             Database.dbcon.execute(cmd)
@@ -473,9 +459,9 @@ class Manager:
 
     @staticmethod
     def start():
+        if not Database.verify():
+            raise Exception(f'Databases not set up')
         Database.setup()
-        if not Database.sanitycheck():
-            raise Exception(f'Error: Databases not set up properly')
         try:
             if os.path.exists('report.pref'):
                 with open('report.pref', 'r') as rp:
@@ -745,6 +731,7 @@ class SideMenu(windows.Window):
         return lookup
 
     def report(self):
+        windows.Logger.log(f'Draw report data')
         try:
             reportdata = Manager.loadreportdata()
             row = 2
