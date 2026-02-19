@@ -112,7 +112,7 @@ class Mail(windows.Window):
     def displaywindow(self, reportdata: ReportData | None = None):
         self.win.addstr(1, 1, 'Outlook Email Report')
         self.footer()
-        windows.separator(self.win, self.width-3, (2,1))
+        windows.separator(self.win, self.width, (2,1))
         if not self.dosend:
             attrib1 = curses.A_BOLD | curses.A_UNDERLINE
             attrib2 = curses.A_NORMAL
@@ -150,7 +150,7 @@ class Mail(windows.Window):
         else:
             self.displaywindow()
             try:
-                reportdata = Manager.loadreportdata()[0]
+                reportdata = Manager.loadreportdata()
             except Exception as e:
                 windows.Logger.log(f'Error loading report data: {e}')
                 self.win.addstr(3, 1, f'Failed to create the email, please check the logs')
