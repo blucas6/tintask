@@ -465,7 +465,9 @@ class Manager:
             if os.path.exists('report.pref'):
                 with open('report.pref', 'r') as rp:
                     Manager.reportpref = rp.readlines()
-            windows.Logger.log(f'Loaded preferences file ->\n{Manager.reportpref}')
+                windows.Logger.log(f'Loaded preferences file ->\n{Manager.reportpref}')
+            else:
+                windows.Logger.log(f'Preference file does not exist')
         except Exception as e:
             windows.Logger.log(f'Error: Failed to load preferences file! -> {e}')
 
@@ -952,7 +954,8 @@ class EditMenu(windows.Window):
         self.tagselection = []
         self.library = {}
         self.date = None
-        self.tag = ''
+        self.newtag = ''
+        self.prevtag = ''
         self.tasks = []
         self.rawtasks = ''
         self.taglb = 'Tag: '
@@ -960,7 +963,7 @@ class EditMenu(windows.Window):
 
     def draw(self):
         self.displaywindow()
-        row = 7
+        row = 8
         col = 1
         if self.status == MenuState.EDITTASK:
             self.status = MenuState.DONE
@@ -978,19 +981,22 @@ class EditMenu(windows.Window):
             self.displaywindow()
         elif self.status == MenuState.EDITTAG:
             self.status = MenuState.DONE
-            edit = windows.Editor((self.row+5,self.col+1+len(self.taglb)), 1, self.width-2-len(self.taglb)-self.col-1)
+            edit = windows.Editor((self.row+6,self.col+1+len(self.taglb)), 1, self.width-2-len(self.taglb)-self.col-1)
             text = edit.gettext()
             if not edit.cancelled:
-                self.tag = text
+                self.newtag = text
             else:
-                self.tag = ''
+                self.newtag = ''
             self.displaywindow()
 
-    def displayselection(self, row, col, selection, selector):
+    def displayselection(self, row, col, selection, selector, highlight):
         if not selection:
             return
-        self.win.addstr(row, col, '<')
+        self.win.addstr(row, col, '[ ')
         col += 2
+        if highlight:
+            self.win.addstr(row, col, '<')
+            col += 2
         for ix,sel in enumerate(selection):
             if selector == ix:
                 attributes = curses.A_REVERSE
@@ -998,22 +1004,27 @@ class EditMenu(windows.Window):
                 attributes = curses.A_NORMAL
             self.win.addstr(row, col, sel, attributes)
             col += len(sel) + 1
-        self.win.addstr(row, col, '>')
+        if highlight:
+            self.win.addstr(row, col, '>') 
+            col += 2
+        self.win.addstr(row, col, ']')
 
     def displaywindow(self):
         self.win.erase()
         curses.textpad.rectangle(self.win, 0, 0, self.length-2, self.width-2)
         self.header()
         self.footer()
-        self.displayselection(3, 1, self.dateselection, self.dateselector)
-        self.displayselection(4, 1, self.tagselection, self.tagselector)
+        highlight = True if self.status == MenuState.SELECTDATE else False
+        self.displayselection(3, 1, self.dateselection, self.dateselector, highlight)
+        highlight = True if self.status == MenuState.SELECTTAG else False
+        self.displayselection(4, 1, self.tagselection, self.tagselector, highlight)
         self.win.addstr(1, int(self.width/2)-int(len(self.status)/2)-1, self.status)
-        row = 5
+        row = 6
         col = 1
         self.win.addstr(row, col, self.taglb[0], curses.A_UNDERLINE)
         self.win.addstr(row, col+1, self.taglb[1:])
-        if self.tag:
-            self.win.addstr(row, col+len(self.taglb), self.tag, curses.A_REVERSE)
+        if self.newtag:
+            self.win.addstr(row, col+len(self.taglb), self.newtag, curses.A_REVERSE)
         row += 1
         self.win.addstr(row, col, f'Tasks: ')
         row += 1
@@ -1051,25 +1062,32 @@ class EditMenu(windows.Window):
             self.tagselection = list(self.library.keys())
             self.tagselector = 0
         else:
-            self.status = MenuState.EDITTASK
+            self.status = MenuState.DONE
             self.tagselection = []
             self.tagselector = 0
+        self.tagselection.append('+')
 
     def loadtasks(self):
         if self.tagselection:
-            self.tag = self.tagselection[self.tagselector]
-            if self.tag in self.library:
-                self.tasks = self.library[self.tag]
-                self.rawtasks = '- '+'\n- '.join(self.tasks)
+            tag = self.tagselection[self.tagselector]
+            if tag == '+':
+                self.prevtag = tag
+                self.newtag = Database.NULL_TAG
+            else:
+                self.prevtag = self.tagselection[self.tagselector]
+                self.newtag = self.tagselection[self.tagselector]
+                if self.prevtag in self.library:
+                    self.tasks = self.library[self.prevtag]
+                    self.rawtasks = '- '+'\n- '.join(self.tasks)
 
     def sendtasks(self):
-        if not self.tag:
-            self.tag = Database.NULL_TAG
+        if not self.newtag:
+            self.newtag = Database.NULL_TAG
         if self.tasks:
             StatusBar.update(10, 'Updating tasks in database...')
             curses.napms(100)
-            Manager.deletetasks(Manager.viewingdate, self.dateselector, self.tag)
-            Manager.addtasks(Manager.viewingdate, self.tasks, self.tag, self.dateselector)
+            Manager.deletetasks(Manager.viewingdate, self.dateselector, self.prevtag)
+            Manager.addtasks(Manager.viewingdate, self.tasks, self.newtag, self.dateselector)
             StatusBar.update(100)
             curses.napms(100)
 
@@ -1101,8 +1119,10 @@ class EditMenu(windows.Window):
                 self.status = MenuState.SELECTDATE
                 self.tagselection = []
                 self.tagselector = 0
+                self.prevtag = ''
+                self.newtag = ''
             elif ch == curses.ascii.NL:
-                self.status = MenuState.EDITTASK
+                self.status = MenuState.DONE
                 self.loadtasks()
         elif self.status == MenuState.DONE:
             if ch == curses.ascii.NL:
