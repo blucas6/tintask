@@ -973,11 +973,14 @@ class EditMenu(windows.Window):
                 msg = '- '
             edit = windows.Editor((self.row+row,self.col+col), self.length-row-2, self.width-3, msg, double=True)
             text = edit.gettext()
-            if not edit.cancelled and text:
-                #self.rawtasks = text
-                self.tasks = [t.strip() for t in text.split('-')[1:]]
-                self.rawtasks = ''
-                for t in self.tasks: self.rawtasks += f'- {t}\n'
+            if not edit.cancelled:
+                if text:
+                    self.tasks = [t.strip() for t in text.split('-')[1:]]
+                    self.rawtasks = ''
+                    for t in self.tasks: self.rawtasks += f'- {t}\n'
+                else:
+                    self.tasks = []
+                    self.rawtasks = ''
             self.displaywindow()
         elif self.status == MenuState.EDITTAG:
             self.status = MenuState.DONE
@@ -1145,86 +1148,6 @@ class EditMenu(windows.Window):
                     self.newtag = ''
 
         return None,None
-
-class EditTask(windows.Window):
-    def draw(self):
-        tab = 2
-        self.win.addstr(1, tab, 'What date to edit? (ex. M/T/W/Th/F/S/Su or dM/dT/dW/dTh/dF/dS/dSu to delete)')
-        self.win.addstr(3, tab, '> ')
-        self.win.noutrefresh()
-        row = 3
-        col = tab+2
-        edit = windows.Editor((self.row+row,self.col+col), self.length-row, self.width-col)
-        choice = edit.gettext()
-        if not choice or edit.cancelled:
-            self.done = True
-            return
-        delete = False
-        if choice[0] == 'd':
-            delete = True
-            choice = choice[1:]
-        choices = {'m':0, 't':1, 'w':2, 'th':3, 'f':4, 's':5, 'su':6}
-        if choice not in choices:
-            self.done = True
-            return
-        selection = choices[choice]
-        if delete:
-            StatusBar.update(10, 'Deleting tasks from database...')
-            curses.napms(100)
-            Manager.deletetasks(Manager.viewingdate, selection)
-            StatusBar.update(100)
-            curses.napms(100)
-        else:
-            tasks = Manager.gettasks(Manager.viewingdate, selection)
-            library = {}
-            tagtoedit = Database.NULL_TAG
-            for task in tasks:
-                if task[1] in library:
-                    library[task[1]].append(task[2])
-                else:
-                    library[task[1]] = [task[2]]
-            windows.Logger.log(f'Edit task: library -> {library} -> {tasks}')
-            self.win.addstr(row+1, tab, 'Edit which tag?')
-            self.win.addstr(row+2, tab, '> ')
-            self.win.noutrefresh()
-            row += 2
-            edit = windows.Editor((self.row+row,self.col+col), self.length-row, self.width-col)
-            tagtoedit = edit.gettext()
-            if edit.cancelled:
-                self.done = True
-                return
-            if not tagtoedit:
-                tagtoedit = Database.NULL_TAG
-            if tagtoedit in library:
-                text = library[tagtoedit]
-            else:
-                text = ''
-            text = '- ' + '\n- '.join(text)
-            if tagtoedit == Database.NULL_TAG:
-                tagtext = 'no tag'
-            else:
-                tagtext = tagtoedit
-            self.win.addstr(row, tab, f"Editting '{tagtext}'")
-            self.win.addstr(row+1, tab, '> ')
-            row += 1
-            self.win.noutrefresh()
-            edit = windows.Editor((self.row+row,self.col+col),
-                                  self.length-row,
-                                  self.width-col,
-                                  text, double=True)
-            text = edit.gettext()
-            if text and not edit.cancelled:
-                StatusBar.update(10, 'Updating tasks in database...')
-                curses.napms(100)
-                Manager.deletetasks(Manager.viewingdate, selection, tagtoedit)
-                tasks = text.split('-')
-                Manager.addtasks(Manager.viewingdate, tasks, tagtoedit, selection)
-                StatusBar.update(100)
-                curses.napms(100)
-        self.done = True
-
-    def input(self, ch):
-        return None, windows.Waction.POP
 
 class TinTask(windows.Window):
     def draw(self):
