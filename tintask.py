@@ -13,6 +13,19 @@ import sys
 if sys.platform == 'win32':
     import win32com.client as win32
 
+reportprefdefault = """
+__MAILTO__first.last@company.com
+__SUBJECT__Weekly Status Report (__SWEEK__-__EWEEK__)
+Weekly Status Report
+
+Accomplishments:
+__TASKS__ __SFILTER__ notag:meeting __EFILTER__
+Key Dates:
+__TASKS__ __SFILTER__ tag:meeting,tags:0 __EFILTER__
+Have a good weekend!
+Name
+"""
+
 class ReportKeys():
     MAILTO = '__MAILTO__'
     SUBJECT = '__SUBJECT__'
@@ -90,6 +103,40 @@ class ReportData:
                         self.body.append(f'  - {task}')
 
             self.body.append(line)
+
+class Options(windows.Window):
+    def __init__(self, row, col, length, width):
+        super().__init__(row, col, length, width)
+
+    def header(self):
+        self.win.addstr(1, 2, f'Options')
+        windows.separator(self.win, self.width, (2,1))
+
+    def footer(self):
+        msg = f'<esc> to close'
+        self.win.addstr(self.length-2, self.width-len(msg)-3, msg)
+
+    def displaywindow(self):
+        self.win.erase()
+        curses.textpad.rectangle(self.win, 0, 0, self.length-2, self.width-2)
+        self.header()
+        self.footer()
+
+    def draw(self):
+        self.displaywindow()
+        _,_ = windows.option(self.win, 'G', 'Generate report preference file', (3,1))
+
+    def input(self, ch):
+        if ch == curses.ascii.ESC:
+            return None,windows.Waction.POP
+        elif ch == ord('g'):
+            StatusBar.update(10, 'Generating report preference file...')
+            curses.napms(100)
+            Manager.checkreportpref()
+            Manager.readreportpref()
+            StatusBar.update(100)
+            curses.napms(100)
+        return None,None
 
 class Mail(windows.Window):
     def __init__(self, row, col, length, width):
@@ -203,37 +250,27 @@ class Install(windows.Window):
     def setuptables(self):
         Database.createtable(DBTables.tasks, DBTables.tasks_columns)
     
-    def step(self, func, msg):
-        windows.Logger.log(f'Install step: {msg}')
-        self.win.addstr(4, 1, ' '*50)
+    def step(self, func, msg, amount):
+        self.win.clear()
+        self.win.addstr(0, 0, 'TINTASK IS INSTALLING...')
         self.win.addstr(4, 1, msg)
         if func:
             func()
         else:
-            windows.Logger.log(f'Install step: {func} is null')
-        self.win.addstr(5, 1, self.bar.update(60))
+            windows.Logger.log(f'Install step: {msg} func:{func} is null')
+        self.win.addstr(5, 1, self.bar.update(amount))
         self.win.noutrefresh()
         curses.doupdate()
         curses.napms(1000)
     
     def setup(self):
-        self.win.addstr(0, 0, 'TINTASK IS INSTALLING...')
-        self.win.addstr(5, 1, self.bar.update(0))
-        self.win.noutrefresh()
-        curses.doupdate()
-        curses.napms(1000)
+        self.step(None, '', 0)
         try:
-            self.step(Database.connect, 'Creating storage space...')
-            self.step(self.setuptables, 'Making tables...')
-            self.win.addstr(4, 1, ' '*50)
-            self.win.addstr(4, 1, 'Final check...')
-            Manager.start()
-            self.win.addstr(5, 1, self.bar.update(100))
-            self.win.addstr(4, 1, ' '*50)
-            self.win.addstr(4, 1, 'Done!')
-            self.win.noutrefresh()
-            curses.doupdate()
-            curses.napms(1000)
+            self.step(Database.connect, 'Creating storage space...', 20)
+            self.step(self.setuptables, 'Making tables...', 40)
+            self.step(Manager.checkreportpref(), 'Setting up preferences', 80)
+            self.step(Manager.start(), 'Final check...', 80)
+            self.step(None, 'Done', 100)
         except Exception as e:
             raise Exception(f'Installation exception: {e}')
 
@@ -307,7 +344,7 @@ class Database:
         try:
             dbfile = Database.getdbpath()
             Database.dbfile = os.path.expanduser(dbfile)
-            if not os.path.exists(Database.dbfile):
+            if not os.path.exists(os.path.dirname(Database.dbfile)):
                 windows.Logger.log(f'Making folders for database - {Database.dbfile}')
                 os.makedirs(os.path.dirname(Database.dbfile))
             else:
@@ -396,6 +433,7 @@ class Manager:
     currentday = datetime.datetime.now()
     viewingdate = datetime.datetime.now()
     reportpref = ''
+    reportpreffile = 'report.pref'
 
     @staticmethod
     def splice(text, width):
@@ -457,19 +495,29 @@ class Manager:
         return date
 
     @staticmethod
+    def checkreportpref():
+        if not os.path.exists(Manager.reportpreffile):
+            with open(Manager.reportpreffile, 'w+') as file:
+                file.write(reportprefdefault)
+
+    @staticmethod
+    def readreportpref():
+        try:
+            if os.path.exists(Manager.reportpreffile):
+                with open(Manager.reportpreffile, 'r') as rp:
+                    Manager.reportpref = rp.readlines()
+                windows.Logger.log(f'Loaded preferences file ->\n{Manager.reportpref}')
+            else:
+                windows.Logger.log(f'Preference file "{Manager.reportpreffile}" does not exist')
+        except Exception as e:
+            windows.Logger.log(f'Error: Failed to load preferences file! -> {e}')
+
+    @staticmethod
     def start():
         if not Database.verify():
             raise Exception(f'Databases not set up')
         Database.setup()
-        try:
-            if os.path.exists('report.pref'):
-                with open('report.pref', 'r') as rp:
-                    Manager.reportpref = rp.readlines()
-                windows.Logger.log(f'Loaded preferences file ->\n{Manager.reportpref}')
-            else:
-                windows.Logger.log(f'Preference file does not exist')
-        except Exception as e:
-            windows.Logger.log(f'Error: Failed to load preferences file! -> {e}')
+        Manager.readreportpref()
 
     @staticmethod
     def datetodbformat(dobj):
@@ -730,7 +778,6 @@ class SideMenu(windows.Window):
         return lookup
 
     def report(self):
-        windows.Logger.log(f'Draw report data')
         try:
             reportdata = Manager.loadreportdata()
             row = 2
@@ -752,8 +799,8 @@ class SideMenu(windows.Window):
                 self.win.addstr(row, col, line)
                 row += am
         except Exception as e:
-            self.win.addstr(row, col, 'Unable to load report.pref file, check log for failures')
-            windows.Logger.log(f'Error (report.pref): {e}')
+            self.win.addstr(row, col, f'Unable to load {Manager.reportpreffile} file, check log for failures')
+            windows.Logger.log(f'Error ({Manager.reportpreffile}): {e}')
 
     def footer(self, increment=''):
         for ix in range(self.width-1):
@@ -901,8 +948,9 @@ class AddMenu(windows.Window):
             edit = windows.Editor((self.row+5,self.col+1), self.length-7, self.width-3, msg, double=True)
             text = edit.gettext()
             if not edit.cancelled and text:
-                self.rawtasks = text
-                self.tasks = text.split('-')
+                self.tasks = [t.strip() for t in text.split('-')[1:]]
+                self.rawtasks = ''
+                for t in self.tasks: self.rawtasks += f'- {t}\n'
             self.displaywindow()
 
     def header(self):
@@ -1162,7 +1210,7 @@ class TinTask(windows.Window):
         er,_ = windows.option(self.win, 'A', 'Add a task', (er+1,coltab))
         er,_ = windows.option(self.win, 'E', 'Edit a date', (er,coltab))
         er,_ = windows.option(self.win, 'M', 'Mail your tasks', (er,coltab))
-        er,_ = windows.option(self.win, 'X', 'Configurations', (er,coltab))
+        er,_ = windows.option(self.win, 'X', 'Options', (er,coltab))
         er,_ = windows.option(self.win, 'Q', 'Quit', (er,coltab))
         self.erow = er
         StatusBar.update(0)
@@ -1176,16 +1224,19 @@ class TinTask(windows.Window):
                            self.length-self.erow,
                            self.width), windows.Waction.PUSH
         elif ch == ord('e'):
-            #return EditTask(self.erow,
-            #                0,
-            #                self.length-self.erow, self.width), windows.Waction.PUSH
             return EditMenu(self.erow+1,
                             0,
                             self.length-self.erow,
                             self.width), windows.Waction.PUSH
         elif ch == ord('m'):
             return Mail(self.erow+1,
-                             0,
-                             self.length-self.erow, self.width), windows.Waction.PUSH
+                        0,
+                        self.length-self.erow,
+                        self.width), windows.Waction.PUSH
+        elif ch == ord('x'):
+            return Options(self.erow+1,
+                           0,
+                           self.length-self.erow,
+                           self.width), windows.Waction.PUSH
         return None, None
 
