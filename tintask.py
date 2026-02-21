@@ -759,12 +759,11 @@ class SideMenu(windows.Window):
         for ix in range(self.width-1):
             self.win.addch(self.length-1, ix, curses.ACS_HLINE, curses.A_BOLD)
         if increment:
-            self.win.addstr(self.length-2, 0, '< ')
-            self.win.addstr(self.length-2, 2, 'P', curses.A_BOLD | curses.A_UNDERLINE)
-            self.win.addstr(self.length-2, 3, f'revious {increment}')
-            msg = f'ext {increment} >'
-            self.win.addstr(self.length-2, self.width-1-len(msg)-1, 'N', curses.A_BOLD | curses.A_UNDERLINE)
-            self.win.addstr(self.length-2, self.width-1-len(msg), msg)
+            self.win.addstr(self.length-2, 0, '<', curses.A_BOLD | curses.A_UNDERLINE)
+            self.win.addstr(self.length-2, 1, f' Previous {increment}',)
+            msg = f'Next {increment} '
+            self.win.addstr(self.length-2, self.width-2-len(msg), msg)
+            self.win.addstr(self.length-2, self.width-2, '>', curses.A_BOLD | curses.A_UNDERLINE)
 
     def draw(self):
         self.menu()
@@ -783,14 +782,14 @@ class SideMenu(windows.Window):
 
     def input(self, ch):
         if self.mode == 'tasks' or self.mode == 'report':
-            if ch == ord('p'):
+            if ch == ord('<'):
                 Manager.viewingdate = Manager.updatedate(Manager.viewingdate, -1, 'week')
-            elif ch == ord('n'):
+            elif ch == ord('>'):
                 Manager.viewingdate = Manager.updatedate(Manager.viewingdate, 1, 'week')
         elif self.mode == 'calendar':
-            if ch == ord('p'):
+            if ch == ord('<'):
                 Manager.viewingdate = Manager.updatedate(Manager.viewingdate, -1, 'month')
-            elif ch == ord('n'):
+            elif ch == ord('>'):
                 Manager.viewingdate = Manager.updatedate(Manager.viewingdate, 1, 'month')
             elif ch == ord('f'):
                 self.filtering = True
