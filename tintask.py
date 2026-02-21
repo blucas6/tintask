@@ -992,11 +992,11 @@ class EditMenu(windows.Window):
     def displayselection(self, row, col, selection, selector, highlight):
         if not selection:
             return
-        self.win.addstr(row, col, '[ ')
-        col += 2
         if highlight:
             self.win.addstr(row, col, '<')
-            col += 2
+        col += 2
+        self.win.addstr(row, col, '[ ')
+        col += 2
         for ix,sel in enumerate(selection):
             if selector == ix:
                 attributes = curses.A_REVERSE
@@ -1004,10 +1004,10 @@ class EditMenu(windows.Window):
                 attributes = curses.A_NORMAL
             self.win.addstr(row, col, sel, attributes)
             col += len(sel) + 1
+        self.win.addstr(row, col, ']')
+        col += 2
         if highlight:
             self.win.addstr(row, col, '>') 
-            col += 2
-        self.win.addstr(row, col, ']')
 
     def displaywindow(self):
         self.win.erase()
@@ -1135,10 +1135,14 @@ class EditMenu(windows.Window):
             elif ch == curses.ascii.BS or ch == curses.KEY_BACKSPACE:
                 self.rawtasks = ''
                 self.tasks = []
-                if self.tagselection:
+                if len(self.tagselection) > 1:
                     self.status = MenuState.SELECTTAG
                 else:
                     self.status = MenuState.SELECTDATE
+                    self.tagselection = []
+                    self.tagselector = 0
+                    self.prevtag = ''
+                    self.newtag = ''
 
         return None,None
 
