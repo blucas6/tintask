@@ -982,12 +982,13 @@ class AddMenu(windows.Window):
             self.win.addstr(row, col+len(self.taglb), self.tag, curses.A_REVERSE)
         row += 1
         self.win.addstr(row, col, f'Tasks: ')
-        if self.tasks:
-            for task in self.tasks:
-                splice,am = Manager.splice(task, self.width-2-col)
-                for jx,txt in enumerate(splice):
-                    self.win.addstr(row+jx, col, txt)
-                row += am
+        row += 1
+        for task in self.tasks:
+            text = f'- {task}'
+            splice,am = Manager.splice(text, self.width-3)
+            for jx,txt in enumerate(splice):
+                self.win.addstr(row+jx, 1, txt)
+            row += am
         self.win.noutrefresh()
 
     def draw(self):
@@ -1140,13 +1141,12 @@ class EditMenu(windows.Window):
         row += 1
         self.win.addstr(row, col, f'Tasks: ')
         row += 1
-        if self.tasks:
-            for task in self.tasks:
-                text = f'- {task}'
-                splice,am = Manager.splice(text, self.width-3)
-                for jx,txt in enumerate(splice):
-                    self.win.addstr(row+jx, 1, txt)
-                row += am
+        for task in self.tasks:
+            text = f'- {task}'
+            splice,am = Manager.splice(text, self.width-3)
+            for jx,txt in enumerate(splice):
+                self.win.addstr(row+jx, 1, txt)
+            row += am
 
         self.win.noutrefresh()
 
