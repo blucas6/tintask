@@ -1086,13 +1086,12 @@ class EditMenu(windows.Window):
     def sendtasks(self):
         if not self.newtag:
             self.newtag = Database.NULL_TAG
-        if self.tasks:
-            StatusBar.update(10, 'Updating tasks in database...')
-            curses.napms(100)
-            Manager.deletetasks(Manager.viewingdate, self.dateselector, self.prevtag)
-            Manager.addtasks(Manager.viewingdate, self.tasks, self.newtag, self.dateselector)
-            StatusBar.update(100)
-            curses.napms(100)
+        StatusBar.update(10, 'Updating tasks in database...')
+        curses.napms(100)
+        Manager.deletetasks(Manager.viewingdate, self.dateselector, self.prevtag)
+        Manager.addtasks(Manager.viewingdate, self.tasks, self.newtag, self.dateselector)
+        StatusBar.update(100)
+        curses.napms(100)
 
     def input(self, ch):
         if ch == curses.ascii.ESC:
