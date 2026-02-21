@@ -13,6 +13,19 @@ import sys
 if sys.platform == 'win32':
     import win32com.client as win32
 
+reportprefdefault = """
+__MAILTO__first.last@company.com
+__SUBJECT__Weekly Status Report (__SWEEK__-__EWEEK__)
+Weekly Status Report
+
+Accomplishments:
+__TASKS__ __SFILTER__ notag:meeting __EFILTER__
+Key Dates:
+__TASKS__ __SFILTER__ tag:meeting,tags:0 __EFILTER__
+Have a good weekend!
+Name
+"""
+
 class ReportKeys():
     MAILTO = '__MAILTO__'
     SUBJECT = '__SUBJECT__'
@@ -91,6 +104,40 @@ class ReportData:
 
             self.body.append(line)
 
+class Options(windows.Window):
+    def __init__(self, row, col, length, width):
+        super().__init__(row, col, length, width)
+
+    def header(self):
+        self.win.addstr(1, 2, f'Options')
+        windows.separator(self.win, self.width, (2,1))
+
+    def footer(self):
+        msg = f'<esc> to close'
+        self.win.addstr(self.length-2, self.width-len(msg)-3, msg)
+
+    def displaywindow(self):
+        self.win.erase()
+        curses.textpad.rectangle(self.win, 0, 0, self.length-2, self.width-2)
+        self.header()
+        self.footer()
+
+    def draw(self):
+        self.displaywindow()
+        _,_ = windows.option(self.win, 'G', 'Generate report preference file', (3,1))
+
+    def input(self, ch):
+        if ch == curses.ascii.ESC:
+            return None,windows.Waction.POP
+        elif ch == ord('g'):
+            StatusBar.update(10, 'Generating report preference file...')
+            curses.napms(100)
+            Manager.checkreportpref()
+            Manager.readreportpref()
+            StatusBar.update(100)
+            curses.napms(100)
+        return None,None
+
 class Mail(windows.Window):
     def __init__(self, row, col, length, width):
         super().__init__(row, col, length, width)
@@ -109,11 +156,10 @@ class Mail(windows.Window):
         msg = f'<esc> to close'
         self.win.addstr(self.length-2, self.width-len(msg)-3, msg)
 
-    def refresh(self, reportdata: ReportData=None):
+    def displaywindow(self, reportdata: ReportData | None = None):
         self.win.addstr(1, 1, 'Outlook Email Report')
         self.footer()
-        for ix in range(self.width-3):
-            self.win.addch(2, 1+ix, curses.ACS_HLINE)
+        windows.separator(self.win, self.width, (2,1))
         if not self.dosend:
             attrib1 = curses.A_BOLD | curses.A_UNDERLINE
             attrib2 = curses.A_NORMAL
@@ -149,14 +195,14 @@ class Mail(windows.Window):
                 self.win.addstr(1+ix, 1, txt)
             self.footer()
         else:
-            self.refresh()
+            self.displaywindow()
             try:
-                reportdata = Manager.loadreportdata()[0]
+                reportdata = Manager.loadreportdata()
             except Exception as e:
                 windows.Logger.log(f'Error loading report data: {e}')
                 self.win.addstr(3, 1, f'Failed to create the email, please check the logs')
                 return
-            self.refresh(reportdata)
+            self.displaywindow(reportdata)
             if self.dosend:
                 StatusBar.update(10, 'Sending Email ...')
                 try:
@@ -168,12 +214,12 @@ class Mail(windows.Window):
                     windows.Logger.log(f'Error sending the email -> {e}')
                     self.dosend = False
                     StatusBar.update(0)
-                    self.refresh(reportdata)
+                    self.displaywindow(reportdata)
                     return
                 StatusBar.update(100)
                 curses.napms(100)
                 self.statusix = 2
-                self.refresh(reportdata)
+                self.displaywindow(reportdata)
                 curses.doupdate()
                 curses.napms(200)
 
@@ -215,36 +261,27 @@ class Install(windows.Window):
         Database.createtable(DBTables.tags, DBTables.tags_columns)
         Database.createtable(DBTables.junction, DBTables.junction_columns)
     
-    def step(self, func, msg):
-        windows.Logger.log(f'Install step: {msg}')
-        self.win.addstr(4, 1, ' '*50)
+    def step(self, func, msg, amount):
+        self.win.clear()
+        self.win.addstr(0, 0, 'TINTASK IS INSTALLING...')
         self.win.addstr(4, 1, msg)
         if func:
             func()
         else:
-            windows.Logger.log(f'Install step: {func} is null')
-        self.win.addstr(5, 1, self.bar.update(60))
+            windows.Logger.log(f'Install step: {msg} func:{func} is null')
+        self.win.addstr(5, 1, self.bar.update(amount))
         self.win.noutrefresh()
         curses.doupdate()
         curses.napms(1000)
     
     def setup(self):
-        self.win.addstr(0, 0, 'TINTASK IS INSTALLING...')
-        self.win.addstr(5, 1, self.bar.update(0))
-        self.win.noutrefresh()
-        curses.doupdate()
-        curses.napms(1000)
+        self.step(None, '', 0)
         try:
-            self.step(Database.connect, 'Creating storage space...')
-            self.step(self.setuptables, 'Making tables...')
-            self.win.addstr(4, 1, ' '*50)
-            self.win.addstr(4, 1, 'Final check...')
-            self.win.addstr(5, 1, self.bar.update(100))
-            self.win.addstr(4, 1, ' '*50)
-            self.win.addstr(4, 1, 'Done!')
-            self.win.noutrefresh()
-            curses.doupdate()
-            curses.napms(1000)
+            self.step(Database.connect, 'Creating storage space...', 20)
+            self.step(self.setuptables, 'Making tables...', 40)
+            self.step(Manager.checkreportpref(), 'Setting up preferences', 80)
+            self.step(Manager.start(), 'Final check...', 80)
+            self.step(None, 'Done', 100)
         except Exception as e:
             raise Exception(f'Installation exception: {e}')
 
@@ -260,14 +297,12 @@ class Database:
     dbcursor: sqlite3.Cursor = None
     dbfile = '' 
     NULL_TAG = 'N/A'
-    DB_NULL = 'NULL'
 
     @staticmethod
     def verify():
         if os.path.exists(Database.getdbpath()):
             return True
-        else:
-            return False
+        return False
 
     @staticmethod
     def delete():
@@ -320,7 +355,7 @@ class Database:
         try:
             dbfile = Database.getdbpath()
             Database.dbfile = os.path.expanduser(dbfile)
-            if not os.path.exists(Database.dbfile):
+            if not os.path.exists(os.path.dirname(Database.dbfile)):
                 windows.Logger.log(f'Making folders for database - {Database.dbfile}')
                 os.makedirs(os.path.dirname(Database.dbfile))
             else:
@@ -435,6 +470,7 @@ class Manager:
     currentday = datetime.datetime.now()
     viewingdate = datetime.datetime.now()
     reportpref = ''
+    reportpreffile = 'report.pref'
 
     @staticmethod
     def splice(text, width):
@@ -496,17 +532,29 @@ class Manager:
         return date
 
     @staticmethod
-    def start():
-        if not Database.verify():
-            raise Exception('Database not created')
-        Database.setup()
+    def checkreportpref():
+        if not os.path.exists(Manager.reportpreffile):
+            with open(Manager.reportpreffile, 'w+') as file:
+                file.write(reportprefdefault)
+
+    @staticmethod
+    def readreportpref():
         try:
-            if os.path.exists('report.pref'):
-                with open('report.pref', 'r') as rp:
+            if os.path.exists(Manager.reportpreffile):
+                with open(Manager.reportpreffile, 'r') as rp:
                     Manager.reportpref = rp.readlines()
-            windows.Logger.log(f'Loaded preferences file ->\n{Manager.reportpref}')
+                windows.Logger.log(f'Loaded preferences file ->\n{Manager.reportpref}')
+            else:
+                windows.Logger.log(f'Preference file "{Manager.reportpreffile}" does not exist')
         except Exception as e:
             windows.Logger.log(f'Error: Failed to load preferences file! -> {e}')
+
+    @staticmethod
+    def start():
+        if not Database.verify():
+            raise Exception(f'Databases not set up')
+        Database.setup()
+        Manager.readreportpref()
 
     @staticmethod
     def datetodbformat(dobj):
@@ -649,7 +697,6 @@ class Manager:
         start = date.replace(day=1)
         end = calendar.monthrange(date.year, date.month)[1]
         end = datetime.date(date.year, date.month, end)
-        windows.Logger.log(f'Get tasks for month of {start} -> {end}')
         return start, end
 
     @staticmethod
@@ -711,7 +758,7 @@ class SideMenu(windows.Window):
         self.win.addstr(2, 3, 'earch:')
         self.win.addstr(2, 10, self.searchterm, curses.A_REVERSE)
         if self.searching:
-            edit = windows.Editor(1, 20, (self.row+2,self.col+10))
+            edit = windows.Editor((self.row+2,self.col+10), 1, 20)
             searchterm = edit.gettext()
             if searchterm:
                 self.searchterm = searchterm
@@ -751,7 +798,7 @@ class SideMenu(windows.Window):
         self.win.addstr(2, 3, 'ilter:')
         self.win.addstr(2, 10, self.filter, curses.A_REVERSE)
         if self.filtering:
-            edit = windows.Editor(1, 20, (self.row+2,self.col+10))
+            edit = windows.Editor((self.row+2,self.col+10), 1, 20)
             filter = edit.gettext()
             if filter:
                 self.filter = filter
@@ -814,19 +861,18 @@ class SideMenu(windows.Window):
                 self.win.addstr(row, col, line)
                 row += am
         except Exception as e:
-            self.win.addstr(row, col, 'Unable to load report.pref file, check log for failures')
-            windows.Logger.log(f'Error (report.pref): {e}')
+            self.win.addstr(row, col, f'Unable to load {Manager.reportpreffile} file, check log for failures')
+            windows.Logger.log(f'Error ({Manager.reportpreffile}): {e}')
 
     def footer(self, increment=''):
         for ix in range(self.width-1):
             self.win.addch(self.length-1, ix, curses.ACS_HLINE, curses.A_BOLD)
         if increment:
-            self.win.addstr(self.length-2, 0, '< ')
-            self.win.addstr(self.length-2, 2, 'P', curses.A_BOLD | curses.A_UNDERLINE)
-            self.win.addstr(self.length-2, 3, f'revious {increment}')
-            msg = f'ext {increment} >'
-            self.win.addstr(self.length-2, self.width-1-len(msg)-1, 'N', curses.A_BOLD | curses.A_UNDERLINE)
-            self.win.addstr(self.length-2, self.width-1-len(msg), msg)
+            self.win.addstr(self.length-2, 0, '<', curses.A_BOLD | curses.A_UNDERLINE)
+            self.win.addstr(self.length-2, 1, f' Previous {increment}',)
+            msg = f'Next {increment} '
+            self.win.addstr(self.length-2, self.width-2-len(msg), msg)
+            self.win.addstr(self.length-2, self.width-2, '>', curses.A_BOLD | curses.A_UNDERLINE)
 
     def draw(self):
         self.menu()
@@ -845,14 +891,14 @@ class SideMenu(windows.Window):
 
     def input(self, ch):
         if self.mode == 'tasks' or self.mode == 'report':
-            if ch == ord('p'):
+            if ch == ord('<'):
                 Manager.viewingdate = Manager.updatedate(Manager.viewingdate, -1, 'week')
-            elif ch == ord('n'):
+            elif ch == ord('>'):
                 Manager.viewingdate = Manager.updatedate(Manager.viewingdate, 1, 'week')
         elif self.mode == 'calendar':
-            if ch == ord('p'):
+            if ch == ord('<'):
                 Manager.viewingdate = Manager.updatedate(Manager.viewingdate, -1, 'month')
-            elif ch == ord('n'):
+            elif ch == ord('>'):
                 Manager.viewingdate = Manager.updatedate(Manager.viewingdate, 1, 'month')
             elif ch == ord('f'):
                 self.filtering = True
@@ -906,131 +952,310 @@ class StatusBar:
         StatusBar.win.noutrefresh()
         curses.doupdate()
 
-class AddTask(windows.Window):
+class MenuState:
+    EDITTAG = 'Edit Tag'
+    EDITTASK = 'Typing'
+    DONE = 'Done? <tab>'
+    SELECTDATE = 'Select Date'
+    SELECTTAG = 'Select Tag'
+
+class AddMenu(windows.Window):
+    def __init__(self, row, col, length, width):
+        super().__init__(row, col, length, width)
+        self.status = MenuState.DONE
+        self.tag = ''
+        self.tasks = []
+        self.rawtasks = ''
+        self.taglb = 'Tag: '
+        self.tasklb = 'Tasks: '
+
+    def displaywindow(self):
+        self.win.erase()
+        curses.textpad.rectangle(self.win, 0, 0, self.length-2, self.width-2)
+        self.header()
+        self.footer()
+        row = 3
+        col = 1
+        self.win.addstr(row, col, self.taglb[0], curses.A_UNDERLINE)
+        self.win.addstr(row, col+1, self.taglb[1:])
+        if self.tag:
+            self.win.addstr(row, col+len(self.taglb), self.tag, curses.A_REVERSE)
+        row += 1
+        self.win.addstr(row, col, f'Tasks: ')
+        if self.tasks:
+            for task in self.tasks:
+                splice,am = Manager.splice(task, self.width-2-col)
+                for jx,txt in enumerate(splice):
+                    self.win.addstr(row+jx, col, txt)
+                row += am
+        self.win.noutrefresh()
+
     def draw(self):
-        tab = 2
-        date = Manager.currentday.strftime('%m/%d')
-        self.win.addstr(1, tab, f'What did you do today? ({date})')
-        am = 0
-        tasks = []
-        row = 2+am
-        col = tab+2
-        while True:
-            self.win.addstr(row, tab, '> ')
-            self.win.noutrefresh()
-            edit = windows.Editor(self.length-row,
-                                  self.width-col,
-                                  (self.row+row,self.col+col))
-            task = edit.gettext()
-            if task:
-                tasks.append(task)
-                am += math.ceil(len(task) / round(self.width-col))
+        self.displaywindow()
+        if self.status == MenuState.EDITTAG:
+            self.status = MenuState.DONE
+            edit = windows.Editor((self.row+3,self.col+1+len(self.taglb)), 1, self.width-2-len(self.taglb)-self.col-1)
+            text = edit.gettext()
+            if not edit.cancelled:
+                self.tag = text
             else:
-                if edit.cancelled:
-                    tasks = []
-                break
-            row = 2+am
-        if tasks:
-            row = 2+am+1
-            self.win.addstr(row, tab, 'Add a tag?')
-            self.win.addstr(row+1, tab, '>')
-            self.win.noutrefresh()
-            row += 1
-            edit = windows.Editor(self.length-row,
-                                  self.width-col,
-                                  (self.row+row,self.col+col))
-            tag = edit.gettext()
-            if not tag:
-                tag = ''
+                self.tag = ''
+            self.displaywindow()
+        elif self.status == MenuState.EDITTASK:
+            self.status = MenuState.DONE
+            if self.rawtasks:
+                msg = self.rawtasks
+            else:
+                msg = '- '
+            edit = windows.Editor((self.row+5,self.col+1), self.length-7, self.width-3, msg, double=True)
+            text = edit.gettext()
+            if not edit.cancelled and text:
+                self.tasks = [t.strip() for t in text.split('-')[1:]]
+                self.rawtasks = ''
+                for t in self.tasks: self.rawtasks += f'- {t}\n'
+            self.displaywindow()
+
+    def header(self):
+        date = Manager.currentday.strftime('%m/%d')
+        self.win.addstr(1, 2, f'Add Tasks')
+        self.win.addstr(1, self.width-len(str(date))-3, str(date), curses.A_REVERSE)
+        self.displaystatus()
+        windows.separator(self.win, self.width, (2,1))
+
+    def footer(self):
+        msg = f'<esc> to close'
+        self.win.addstr(self.length-2, self.width-len(msg)-3, msg)
+
+    def displaystatus(self):
+        self.win.addstr(1, int(self.width/2)-int(len(self.status)/2)-1, self.status)
+
+    def sendtasks(self):
+        if self.tasks:
+            windows.Logger.log(f'Sending tasks: {self.tag} {self.tasks}')
+            if not self.tag:
+                self.tag = Database.NULL_TAG
             StatusBar.update(10, 'Adding task to database...')
             curses.napms(100)
-            Manager.addtasks(Manager.currentday, tasks, tag)
+            Manager.addtasks(Manager.currentday, self.tasks, self.tag)
             StatusBar.update(100)
             curses.napms(100)
-        self.done = True
 
     def input(self, ch):
-        return None, windows.Waction.POP
+        if ch == curses.ascii.ESC:
+            return None,windows.Waction.POP
+        elif self.status == MenuState.DONE:
+            if ch == curses.ascii.NL:
+                self.status = MenuState.EDITTASK
+            elif ch == curses.ascii.TAB:
+                self.sendtasks()
+                return None,windows.Waction.POP
+            elif ch == ord('t'):
+                self.status = MenuState.EDITTAG
+        return None,None
 
-class EditTask(windows.Window):
+class EditMenu(windows.Window):
+    def __init__(self, row, col, length, width):
+        super().__init__(row, col, length, width)
+        self.status = MenuState.SELECTDATE
+        self.dateselector = 0
+        self.dateselection = ['Mon', 'Tues', 'Wed', 'Thurs', 'Fri', 'Sat', 'Sun']
+        self.tagselector = 0
+        self.tagselection = []
+        self.library = {}
+        self.date = None
+        self.newtag = ''
+        self.prevtag = ''
+        self.tasks = []
+        self.rawtasks = ''
+        self.taglb = 'Tag: '
+        self.tasklb = 'Tasks: '
+
     def draw(self):
-        tab = 2
-        self.win.addstr(1, tab, 'What date to edit? (ex. M/T/W/Th/F/S/Su or dM/dT/dW/dTh/dF/dS/dSu to delete)')
-        self.win.addstr(3, tab, '> ')
-        self.win.noutrefresh()
-        row = 3
-        col = tab+2
-        edit = windows.Editor(self.length-row, self.width-col, (self.row+row,self.col+col))
-        choice = edit.gettext()
-        if not choice or edit.cancelled:
-            self.done = True
-            return
-        delete = False
-        if choice[0] == 'd':
-            delete = True
-            choice = choice[1:]
-        choices = {'m':0, 't':1, 'w':2, 'th':3, 'f':4, 's':5, 'su':6}
-        if choice not in choices:
-            self.done = True
-            return
-        selection = choices[choice]
-        if delete:
-            StatusBar.update(10, 'Deleting tasks from database...')
-            curses.napms(100)
-            Manager.deletetasks(Manager.viewingdate, selection)
-            StatusBar.update(100)
-            curses.napms(100)
-        else:
-            tasks = Manager.gettasks(Manager.viewingdate, selection)
-            library = {}
-            tagtoedit = Database.NULL_TAG
-            for task in tasks:
-                if task[1] in library:
-                    library[task[1]].append(task[2])
-                else:
-                    library[task[1]] = [task[2]]
-            windows.Logger.log(f'Edit task: library -> {library} -> {tasks}')
-            self.win.addstr(row+1, tab, 'Edit which tag?')
-            self.win.addstr(row+2, tab, '> ')
-            self.win.noutrefresh()
-            row += 2
-            edit = windows.Editor(self.length-row, self.width-col, (self.row+row,self.col+col))
-            tagtoedit = edit.gettext()
-            if edit.cancelled:
-                self.done = True
-                return
-            if not tagtoedit:
-                tagtoedit = Database.NULL_TAG
-            if tagtoedit in library:
-                text = library[tagtoedit]
+        self.displaywindow()
+        row = 8
+        col = 1
+        if self.status == MenuState.EDITTASK:
+            self.status = MenuState.DONE
+            if self.rawtasks:
+                msg = self.rawtasks
             else:
-                text = ''
-            text = '- ' + '\n- '.join(text)
-            if tagtoedit == Database.NULL_TAG:
-                tagtext = 'no tag'
-            else:
-                tagtext = tagtoedit
-            self.win.addstr(row, tab, f"Editting '{tagtext}'")
-            self.win.addstr(row+1, tab, '> ')
-            row += 1
-            self.win.noutrefresh()
-            edit = windows.Editor(self.length-row,
-                                  self.width-col,
-                                  (self.row+row,self.col+col),
-                                  text, double=True)
+                msg = '- '
+            edit = windows.Editor((self.row+row,self.col+col), self.length-row-2, self.width-3, msg, double=True)
             text = edit.gettext()
-            if text and not edit.cancelled:
-                StatusBar.update(10, 'Updating tasks in database...')
-                curses.napms(100)
-                Manager.deletetasks(Manager.viewingdate, selection, tagtoedit)
-                tasks = text.split('-')
-                Manager.addtasks(Manager.viewingdate, tasks, tagtoedit, selection)
-                StatusBar.update(100)
-                curses.napms(100)
-        self.done = True
+            if not edit.cancelled:
+                if text:
+                    self.tasks = [t.strip() for t in text.split('-')[1:]]
+                    self.rawtasks = ''
+                    for t in self.tasks: self.rawtasks += f'- {t}\n'
+                else:
+                    self.tasks = []
+                    self.rawtasks = ''
+            self.displaywindow()
+        elif self.status == MenuState.EDITTAG:
+            self.status = MenuState.DONE
+            edit = windows.Editor((self.row+6,self.col+1+len(self.taglb)), 1, self.width-2-len(self.taglb)-self.col-1)
+            text = edit.gettext()
+            if not edit.cancelled:
+                self.newtag = text
+            else:
+                self.newtag = ''
+            self.displaywindow()
+
+    def displayselection(self, row, col, selection, selector, highlight):
+        if not selection:
+            return
+        if highlight:
+            self.win.addstr(row, col, '<')
+        col += 2
+        self.win.addstr(row, col, '[ ')
+        col += 2
+        for ix,sel in enumerate(selection):
+            if selector == ix:
+                attributes = curses.A_REVERSE
+            else:
+                attributes = curses.A_NORMAL
+            self.win.addstr(row, col, sel, attributes)
+            col += len(sel) + 1
+        self.win.addstr(row, col, ']')
+        col += 2
+        if highlight:
+            self.win.addstr(row, col, '>') 
+
+    def displaywindow(self):
+        self.win.erase()
+        curses.textpad.rectangle(self.win, 0, 0, self.length-2, self.width-2)
+        self.header()
+        self.footer()
+        highlight = True if self.status == MenuState.SELECTDATE else False
+        self.displayselection(3, 1, self.dateselection, self.dateselector, highlight)
+        highlight = True if self.status == MenuState.SELECTTAG else False
+        self.displayselection(4, 1, self.tagselection, self.tagselector, highlight)
+        self.win.addstr(1, int(self.width/2)-int(len(self.status)/2)-1, self.status)
+        row = 6
+        col = 1
+        self.win.addstr(row, col, self.taglb[0], curses.A_UNDERLINE)
+        self.win.addstr(row, col+1, self.taglb[1:])
+        if self.newtag:
+            self.win.addstr(row, col+len(self.taglb), self.newtag, curses.A_REVERSE)
+        row += 1
+        self.win.addstr(row, col, f'Tasks: ')
+        row += 1
+        if self.tasks:
+            for task in self.tasks:
+                text = f'- {task}'
+                splice,am = Manager.splice(text, self.width-3)
+                for jx,txt in enumerate(splice):
+                    self.win.addstr(row+jx, 1, txt)
+                row += am
+
+        self.win.noutrefresh()
+
+    def footer(self):
+        msg = f'<esc> to close'
+        self.win.addstr(self.length-2, self.width-len(msg)-3, msg)
+    
+    def header(self):
+        self.win.addstr(1, 2, f'Edit Tasks')
+        if self.date:
+            self.win.addstr(1, self.width-len(str(self.date))-3, str(self.date), curses.A_REVERSE)
+        windows.separator(self.win, self.width, (2,1))
+
+    def loadlibrary(self):
+        tasks = Manager.gettasks(Manager.viewingdate, self.dateselector)
+        self.date = Manager.shiftdate(Manager.viewingdate, self.dateselector).strftime('%m/%d')
+        self.library = {}
+        for task in tasks:
+            if task[1] in self.library:
+                self.library[task[1]].append(task[2])
+            else:
+                self.library[task[1]] = [task[2]]
+        windows.Logger.log(f'Edit task: library -> {self.library} -> {tasks}')
+        if self.library.keys():
+            self.tagselection = list(self.library.keys())
+            self.tagselector = 0
+        else:
+            self.status = MenuState.DONE
+            self.tagselection = []
+            self.tagselector = 0
+        self.tagselection.append('+')
+
+    def loadtasks(self):
+        if self.tagselection:
+            tag = self.tagselection[self.tagselector]
+            if tag == '+':
+                self.prevtag = tag
+                self.newtag = Database.NULL_TAG
+            else:
+                self.prevtag = self.tagselection[self.tagselector]
+                self.newtag = self.tagselection[self.tagselector]
+                if self.prevtag in self.library:
+                    self.tasks = self.library[self.prevtag]
+                    self.rawtasks = '- '+'\n- '.join(self.tasks)
+
+    def sendtasks(self):
+        if not self.newtag:
+            self.newtag = Database.NULL_TAG
+        StatusBar.update(10, 'Updating tasks in database...')
+        curses.napms(100)
+        Manager.deletetasks(Manager.viewingdate, self.dateselector, self.prevtag)
+        Manager.addtasks(Manager.viewingdate, self.tasks, self.newtag, self.dateselector)
+        StatusBar.update(100)
+        curses.napms(100)
 
     def input(self, ch):
-        return None, windows.Waction.POP
+        if ch == curses.ascii.ESC:
+            return None, windows.Waction.POP
+        elif self.status == MenuState.SELECTDATE:
+            if ch == ord('>'):
+                self.dateselector += 1
+                if self.dateselector >= len(self.dateselection):
+                    self.dateselector = 0
+            elif ch == ord('<'):
+                self.dateselector -= 1
+                if self.dateselector < 0:
+                    self.dateselector = len(self.dateselection)-1
+            elif ch == curses.ascii.NL:
+                self.status = MenuState.SELECTTAG
+                self.loadlibrary()
+        elif self.status == MenuState.SELECTTAG:
+            if ch == ord('>'):
+                self.tagselector += 1
+                if self.tagselector >= len(self.tagselection):
+                    self.tagselector = 0
+            elif ch == ord('<'):
+                self.tagselector -= 1
+                if self.tagselector < 0:
+                    self.tagselector = len(self.tagselection)-1
+            elif ch == curses.ascii.BS or ch == curses.KEY_BACKSPACE:
+                self.status = MenuState.SELECTDATE
+                self.tagselection = []
+                self.tagselector = 0
+                self.prevtag = ''
+                self.newtag = ''
+            elif ch == curses.ascii.NL:
+                self.status = MenuState.DONE
+                self.loadtasks()
+        elif self.status == MenuState.DONE:
+            if ch == curses.ascii.NL:
+                self.status = MenuState.EDITTASK
+            elif ch == curses.ascii.TAB:
+                self.sendtasks()
+                return None,windows.Waction.POP
+            elif ch == ord('t'):
+                self.status = MenuState.EDITTAG
+            elif ch == curses.ascii.BS or ch == curses.KEY_BACKSPACE:
+                self.rawtasks = ''
+                self.tasks = []
+                if len(self.tagselection) > 1:
+                    self.status = MenuState.SELECTTAG
+                else:
+                    self.status = MenuState.SELECTDATE
+                    self.tagselection = []
+                    self.tagselector = 0
+                    self.prevtag = ''
+                    self.newtag = ''
+
+        return None,None
 
 class TinTask(windows.Window):
     def draw(self):
@@ -1047,7 +1272,7 @@ class TinTask(windows.Window):
         er,_ = windows.option(self.win, 'A', 'Add a task', (er+1,coltab))
         er,_ = windows.option(self.win, 'E', 'Edit a date', (er,coltab))
         er,_ = windows.option(self.win, 'M', 'Mail your tasks', (er,coltab))
-        er,_ = windows.option(self.win, 'X', 'Configurations', (er,coltab))
+        er,_ = windows.option(self.win, 'X', 'Options', (er,coltab))
         er,_ = windows.option(self.win, 'Q', 'Quit', (er,coltab))
         self.erow = er
         StatusBar.update(0)
@@ -1056,17 +1281,24 @@ class TinTask(windows.Window):
         if ch == ord('q'):
             raise SystemExit
         elif ch == ord('a'):
-            return AddTask(self.erow,
+            return AddMenu(self.erow+1,
                            0,
                            self.length-self.erow,
                            self.width), windows.Waction.PUSH
         elif ch == ord('e'):
-            return EditTask(self.erow,
+            return EditMenu(self.erow+1,
                             0,
-                            self.length-self.erow, self.width), windows.Waction.PUSH
+                            self.length-self.erow,
+                            self.width), windows.Waction.PUSH
         elif ch == ord('m'):
             return Mail(self.erow+1,
-                             0,
-                             self.length-self.erow, self.width), windows.Waction.PUSH
+                        0,
+                        self.length-self.erow,
+                        self.width), windows.Waction.PUSH
+        elif ch == ord('x'):
+            return Options(self.erow+1,
+                           0,
+                           self.length-self.erow,
+                           self.width), windows.Waction.PUSH
         return None, None
 

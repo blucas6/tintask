@@ -107,16 +107,19 @@ def tab(win, name, selected, pos):
     win.addstr(pos[0], pos[1]+3, name[1:]+' \\', highlight)
     return pos[0], pos[1]+2+len(name)+2
 
+def separator(win, width, pos):
+    for ix in range(width-3):
+        win.addch(pos[0], pos[1]+ix, curses.ACS_HLINE)
+
 class Editor:
-    def __init__(self, rows, cols, pos, msg='', double=False):
+    def __init__(self, pos, length, width, msg='', double=False):
         self.cancelled = False
-        self.rows = rows
-        self.cols = cols
+        self.length = length
+        self.width = width 
         self.pos = pos
         self.msg = msg
         self.double = double
         self.lastkey = 0
-        self.maxchars = (self.pos[0]-self.rows) * (self.pos[1]-self.cols)
 
     def validator(self, ch):
         if ch == curses.ascii.NL or ch == curses.ascii.CR:
@@ -133,12 +136,10 @@ class Editor:
 
     def gettext(self):
         curses.curs_set(1)
-        Logger.log(f'Editor: rows:{self.rows} cols:{self.cols} pos:{self.pos}')
-        win = curses.newwin(self.rows, self.cols, self.pos[0], self.pos[1])
+        Logger.log(f'Editor: rows:{self.length} cols:{self.width} pos:{self.pos}')
+        win = curses.newwin(self.length, self.width, self.pos[0], self.pos[1])
         if self.msg:
-            Logger.log(f'window: [{self.pos} {self.rows} {self.cols}]')
-            Logger.log(f'max chars: {self.maxchars}')
-            #win.addstr(0, 0, self.msg[:self.maxchars])
+            Logger.log(f'Editor: msg: {self.msg}')
             win.addstr(0, 0, self.msg)
         box = curses.textpad.Textbox(win)
         text = box.edit(self.validator).strip()
