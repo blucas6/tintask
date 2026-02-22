@@ -34,6 +34,8 @@ class ReportKeys():
     TASKS = '__TASKS__'
     SFILTER = '__SFILTER__'
     EFILTER = '__EFILTER__'
+    SFORM = '__SFORM__'
+    EFORM = '__EFORM__'
 
 class ReportData:
     def __init__(self, tasks, start, end, prefile):
@@ -46,12 +48,23 @@ class ReportData:
         self.body = []
         self.loadreport()
 
+    def getsetting(self, line, startkey, endkey):
+        sx = line.find(startkey) + len(startkey)
+        ex = line.find(endkey)
+        setting = line[sx:ex].strip()
+        line = line.replace(startkey, '')
+        line = line.replace(endkey, '')
+        line = line.replace(setting, '')
+        return setting, line
+
     def loadreport(self):
-        usefilter = ''
-        tagfilter = ''
-        tagtext = ''
-        showtags = True
         for line in self.prefile:
+            usefilter = ''
+            tagfilter = ''
+            tagtext = ''
+            showtags = True
+            tagform = ''
+            taskform = ''
             line = line.strip()
             if ReportKeys.MAILTO in line:
                 line = line.replace(ReportKeys.MAILTO, '')
@@ -70,10 +83,15 @@ class ReportData:
             if ReportKeys.EWEEK in line:
                 line = line.replace(ReportKeys.EWEEK, self.end)
             if ReportKeys.TASKS in line:
+                if ReportKeys.SFORM in line and ReportKeys.EFORM in line:
+                    format,line = self.getsetting(line, ReportKeys.SFORM, ReportKeys.EFORM)
+                    for prop in format.split(','):
+                        if 'tag' in prop:
+                            tagform = prop.replace("'", '')
+                        elif 'task' in prop:
+                            taskform = prop.replace("'", '')
                 if ReportKeys.SFILTER in line and ReportKeys.EFILTER in line:
-                    sx = line.find(ReportKeys.SFILTER) + len(ReportKeys.SFILTER)
-                    ex = line.find(ReportKeys.EFILTER)
-                    usefilter = line[sx:ex].strip()
+                    usefilter,line = self.getsetting(line, ReportKeys.SFILTER, ReportKeys.EFILTER)
                     for mfilter in usefilter.split(','):
                         prop,text = mfilter.split(':')
                         if prop == 'tag':
@@ -84,9 +102,6 @@ class ReportData:
                             tagtext = str(text)
                         elif prop == 'tags':
                             showtags = bool(int(text))
-                    line = line.replace(ReportKeys.SFILTER, '')
-                    line = line.replace(ReportKeys.EFILTER, '')
-                    line = line.replace(usefilter, '')
                 windows.Logger.log(f'tagfilter: {tagfilter} {showtags}')
                 line = line.replace(ReportKeys.TASKS, '')
                 for tag,tasks in self.tasks.items():
@@ -98,9 +113,17 @@ class ReportData:
                             continue
                     if showtags:
                         if tag != Database.NULL_TAG:
-                            self.body.append(f' {tag}')
+                            if tagform:
+                                text = tagform.replace('tag', tag)
+                                self.body.append(text)
+                            else:
+                                self.body.append(f' {tag}')
                     for task in tasks:
-                        self.body.append(f'  - {task}')
+                        if taskform:
+                            text = taskform.replace('task', task)
+                            self.body.append(text)
+                        else:
+                            self.body.append(f'  - {task}')
 
             self.body.append(line)
 
