@@ -139,7 +139,6 @@ class Editor:
         Logger.log(f'Editor: rows:{self.length} cols:{self.width} pos:{self.pos}')
         win = curses.newwin(self.length, self.width, self.pos[0], self.pos[1])
         if self.msg:
-            Logger.log(f'Editor: msg: {self.msg}')
             win.addstr(0, 0, self.msg)
         box = curses.textpad.Textbox(win)
         text = box.edit(self.validator).strip()
