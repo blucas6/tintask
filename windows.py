@@ -17,7 +17,7 @@ class mycalendar:
         self.cal = calendar.month(date.year, date.month)
         self.calarray = [week.split() for week in self.cal.split('\n')]
 
-    def print(self, win, strow, stcol, tasks={}, filter=''):
+    def print(self, win, strow, stcol, tasks={}, filters=[]):
         firstday = self.date.replace(day=1).weekday()
         attributes = curses.A_BOLD | curses.A_UNDERLINE
         win.addstr(strow, stcol, f'{self.calarray[0][0]} {self.calarray[0][1]}', attributes)
@@ -27,12 +27,15 @@ class mycalendar:
                 fshift = 0
                 if row == 2:
                     fshift = 3*firstday
-                if self.calarray[row][col] in tasks:
-                    if filter:
-                        if filter in tasks[self.calarray[row][col]]:
-                            attribute = curses.A_REVERSE
-                        else:
-                            attribute = curses.A_NORMAL
+                datenum = self.calarray[row][col]
+                if datenum in tasks:
+                    if filters:
+                        for filter in filters:
+                            if filter in tasks[datenum]:
+                                attribute = curses.A_REVERSE
+                                break
+                            else:
+                                attribute = curses.A_NORMAL
                     else:
                         attribute = curses.A_REVERSE
                 else:

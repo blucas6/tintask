@@ -703,8 +703,10 @@ class Manager:
         windows.Logger.log(f'New result format tags: {tags}')
         if groupby == 'tag':
             tasks,_ = Manager.organizetasksbytag(tasks, tags)
-        else:
+        elif groupby == 'date':
             tasks = Manager.organizetasksbydate(tasks, tags)
+        else:
+            tasks = Manager.organizetasksbyday(tasks, tags)
         return tasks
 
     @staticmethod
@@ -741,6 +743,22 @@ class Manager:
                 # or add a new date slot and dict
                 library[date] = {tag: [task]}
         return library 
+    
+    @staticmethod
+    def organizetasksbyday(tasks, tags):
+        library = {}
+        for id,date,task in tasks:
+            for tag in tags[id]:
+                tag = tag[0]
+                daynum = str(int(date.split('-')[-1]))
+                if daynum in library:
+                    if tag in library[daynum]:
+                        library[daynum][tag].append(task)
+                    else:
+                        library[daynum][tag] = [task]
+                else:
+                    library[daynum] = {tag: [task]}
+        return library
 
     @staticmethod
     def getweek(date=None):
@@ -881,22 +899,14 @@ class SideMenu(windows.Window):
             row += calendar.length + rowspace
         for pt in pts:
             calendar = windows.mycalendar(currentmonth)
-            lookup = self.gettasksaslookup(currentmonth)
-            calendar.print(self.win, pt[0], pt[1], lookup, self.filter)
+            lookup = Manager.gettasks(currentmonth, 'month', groupby='day')
+            if self.filter:
+                filterlist = self.filter.split(',')
+            else:
+                filterlist = []
+            calendar.print(self.win, pt[0], pt[1], lookup, filterlist)
             td = dateutil.relativedelta.relativedelta(months=1)
             currentmonth = currentmonth + td
-
-    def gettasksaslookup(self, date):
-        tasks = Manager.gettasks(date, 'month', groupby='date')
-        windows.Logger.log(tasks)
-        lookup = {}
-        for date, data in tasks.items():
-            index = str(int(date.split('-')[-1]))
-            lookup[index] = {}
-            for tag, tasks in data.items():
-                lookup[index][tag] = len(tasks)
-        windows.Logger.log(lookup)
-        return lookup
 
     def report(self):
         row = 2
