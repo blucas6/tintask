@@ -1040,6 +1040,9 @@ class AddMenu(windows.Window):
         if self.tag:
             self.win.addstr(row, col+len(self.taglb), self.tag, curses.A_REVERSE)
         row += 1
+        clearlb = 'Clear'
+        self.win.addstr(row, self.width-1-len(clearlb)-1, clearlb[0], curses.A_UNDERLINE)
+        self.win.addstr(row, self.width-1-len(clearlb), clearlb[1:])
         self.win.addstr(row, col, f'Tasks: ')
         row += 1
         for task in self.tasks:
@@ -1105,6 +1108,9 @@ class AddMenu(windows.Window):
     def input(self, ch):
         if ch == curses.ascii.ESC:
             return None,windows.Waction.POP
+        elif ch == ord('c'):
+            self.rawtasks = ''
+            self.tasks = ''
         elif self.status == MenuState.DONE:
             if ch == curses.ascii.NL:
                 self.status = MenuState.EDITTASK
@@ -1201,6 +1207,9 @@ class EditMenu(windows.Window):
         if self.newtag:
             self.win.addstr(row, col+len(self.taglb), self.newtag, curses.A_REVERSE)
         row += 1
+        clearlb = 'Clear'
+        self.win.addstr(row, self.width-1-len(clearlb)-1, clearlb[0], curses.A_UNDERLINE)
+        self.win.addstr(row, self.width-1-len(clearlb), clearlb[1:])
         self.win.addstr(row, col, f'Tasks: ')
         row += 1
         for task in self.tasks:
@@ -1240,7 +1249,7 @@ class EditMenu(windows.Window):
             tag = self.tagselection[self.tagselector]
             if tag == '+':
                 self.prevtag = tag
-                self.newtag = tag
+                self.newtag = '' 
             else:
                 self.prevtag = self.tagselection[self.tagselector]
                 self.newtag = self.tagselection[self.tagselector]
@@ -1265,6 +1274,9 @@ class EditMenu(windows.Window):
     def input(self, ch):
         if ch == curses.ascii.ESC:
             return None, windows.Waction.POP
+        elif ch == ord('c'):
+            self.rawtasks = ''
+            self.tasks = ''
         elif self.status == MenuState.SELECTDATE:
             if ch == ord('>'):
                 self.dateselector += 1
