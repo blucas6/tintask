@@ -1,4 +1,5 @@
 import calendar
+import subprocess
 import curses.ascii
 import curses.textpad
 import math
@@ -12,6 +13,41 @@ import sys
 
 if sys.platform == 'win32':
     import win32com.client as win32
+
+microsofttaskdefault = f'''<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+   <Triggers>
+      <CalendarTrigger>
+      <StartBoundary>2024-05-13T17:00:00</StartBoundary>
+      <Enabled>true</Enabled>
+      <ScheduleByWeek>
+         <DaysOfWeek>
+            <Monday />
+            <Tuesday />
+            <Wednesday />
+            <Thursday />
+         </DaysOfWeek>
+         <WeeksInterval>1</WeeksInterval>
+      </ScheduleByWeek>
+      </CalendarTrigger>
+      <CalendarTrigger>
+      <StartBoundary>2024-05-20T03:30:00</StartBoundary>
+      <Enabled>true</Enabled>
+      <ScheduleByWeek>
+         <DaysOfWeek>
+            <Friday />
+         </DaysOfWeek>
+         <WeeksInterval>2</WeeksInterval>
+      </ScheduleByWeek>
+      </CalendarTrigger>
+   </Triggers>
+   <Actions>
+      <Exec>
+         <Command>{sys.executable}</Command>
+      </Exec>
+   </Actions>
+</Task>
+'''
 
 reportprefdefault = """
 __MAILTO__first.last@company.com
@@ -267,29 +303,173 @@ class DBTables:
 class DBIndexes:
     tagindex = f'tagindex ON {DBTables.tasks}(date)'
 
-class Install(windows.Window):
-    def __init__(self, row, col, length, width):
-        super().__init__(row, col, length, width)
-        self.bar = windows.Bar(30)
+class InstallManager:
+    shortcutname = 'tintask.lnk'
+    filetype = ''
+    programname = 'tintask'
 
-    def verify(self):
+    @staticmethod
+    def getinstallfuncs():
+        return {
+                }
+
+
+    @staticmethod
+    def verify():
         try:
             Manager.start()
         except:
             return False
         return True
 
-    def setuptables(self):
+    @staticmethod
+    def setuptables():
         Database.createtable(DBTables.tasks, DBTables.tasks_columns)
         Database.createtable(DBTables.tags, DBTables.tags_columns)
         Database.createtable(DBTables.junction, DBTables.junction_columns)
+
+    @staticmethod
+    def getstartshortcut():
+        if sys.platform == 'win32':
+            appdata = os.path.expandvars("%APPDATA%")
+            return os.path.join(appdata,
+                                'Microsoft\\Windows\\Start Menu\\Programs\\',
+                                InstallManager.shortcutname)
+        return ''
+
+    @staticmethod
+    def getdesktopshortcut():
+        if sys.platform == 'win32':
+            desktop = os.path.join(os.path.expanduser('~'), 'Desktop')
+            return os.path.join(desktop, InstallManager.shortcutname)
+        return ''
+
+    @staticmethod
+    def deleteshortcuts():
+        if sys.platform == 'win32':
+            try:
+                if os.path.exists(InstallManager.getstartshortcut()):
+                    windows.Logger.log(f'Install: removing shortcut link')
+                    os.remove(InstallManager.getstartshortcut())
+                if os.path.exists(InstallManager.getdesktopshortcut()):
+                    windows.Logger.log(f'Install: removing desktop link')
+                    os.remove(InstallManager.getdesktopshortcut())
+            except Exception as e:
+                windows.Logger.log(f'Install: Failed to remove links - {e}')
+
+    @staticmethod
+    def createshortcuts():
+        if sys.platform == 'win32' and InstallManager.filetype == 'executable':
+            windows.Logger.log(f'Install: creating desktop shortcut')
+
+            # desktop shortcut
+            shell = win32com.client.Dispatch('WScript.shell')
+            shortcut = shell.createShortcut(InstallManager.getdesktopshortcut())
+            shortcut.TargetPath = sys.executable 
+            shortcut.WorkingDirectory = '.'
+            shortcut.IconLocation = sys.executable
+            shortcut.save()
+
+            windows.Logger.log(f'Install: creating start menu shortcut')
+            # Icon source locations: https://www.digitalcitizen.life/where-find-most-windows-10s-native-icons/
+            icon_path="pifmgr.dll"
+            icon_index="16"
+
+            # Exit if shortcut already exists
+            if(os.path.exists(InstallManager.getstartshortcut())):
+                windows.Logger.log('Install: shortcut already exists.')
+                return
+
+            # Compose wscript shortcut creation command
+            command = [f'$WshShell = New-Object -COMObject WScript.Shell;',
+                       f'$Shortcut = $WshShell.CreateShortcut("{InstallManager.getstartshortcut()}");',
+                       f'$Shortcut.TargetPath = "{sys.executable}";',
+                       f'$Shortcut.IconLocation = "{icon_path},{icon_index}";',
+                       '$Shortcut.Save()']
+            command = " ".join(command)
+
+            # Execute wscript shortcut creation command
+            try:
+                process = subprocess.Popen(['powershell.exe', command], stdout=sys.stdout)
+                process.communicate()
+            except Exception as e:
+                windows.Logger.log(f'Failed to create shortcut -> {e}')
+
+    @staticmethod
+    def scheduledtaskexists():
+       # Check if Task Already Exists
+       process = subprocess.run(f'SCHTASKS /Query /TN {InstallManager.programname}',
+                                stdout=subprocess.PIPE, 
+                                stderr=subprocess.PIPE, 
+                                text=True)
+       task_query = process.stdout
+       if InstallManager.programname in task_query:
+           windows.Logger.log('Install: scheduled task already exists')
+           return True
+       return False
+
+    @staticmethod
+    def createscheduledtask():
+        if sys.platform == 'win32' and InstallManager.filetype == 'executable':
+            if InstallManager.scheduledtaskexists():
+                return
+            
+            windows.Logger.log(f'Install: creating scheduled task')
+            with open('Schedule.xml', 'w+') as fxml:
+                fxml.write(microsofttaskdefault)
+
+            # Compose command for window's task scheduler
+            command = f"SCHTASKS /Create /TN {InstallManager.programname} /XML \"{fxml.name}\""
+
+            # Execute wscript shortcut creation command
+            try:
+                process = subprocess.Popen(command, stdout=sys.stdout)
+                process.communicate()
+            except Exception as e:
+                windows.Logger.log(f'Install: failed to create scheduled task -> {e}')
+
+    @staticmethod
+    def deletescheduledtask():
+        if sys.platform == 'win32' and InstallManager.filetype == 'executable':
+            if InstallManager.scheduledtaskexists():
+                return
+
+            windows.Logger.log('Install: deleting scheduled task...')
+            try:
+                process = subprocess.run(f'SCHTASKS /DELETE /F /TN {InstallManager.programname}', 
+                              stdout=subprocess.PIPE, 
+                              stderr=subprocess.PIPE, 
+                              text=True)
+                if process.stderr == 1:
+                    raise Exception
+            except Exception as e:
+                windows.Logger.log(f'Install: failed to delete scheduled task -> {e}')
+
+    @staticmethod
+    def getuninstallfuncs():
+        return {}
+
+    @staticmethod
+    def uninstall():
+        Database.delete()
+        InstallManager.deleteshortcuts()
+
+class Install(windows.Window):
+    def __init__(self, row, col, length, width):
+        super().__init__(row, col, length, width)
+        self.bar = windows.Bar(30)
+        self.cleaninstall = True
     
     def step(self, func, msg, amount):
         self.win.clear()
         self.win.addstr(0, 0, 'TINTASK IS INSTALLING...')
         self.win.addstr(4, 1, msg)
         if func:
-            func()
+            try:
+                func()
+            except Exception as e:
+                self.cleaninstall = False
+                windows.Logger.log(f'Install exception: {e}')
         else:
             windows.Logger.log(f'Install step: {msg} func:{func} is null')
         self.win.addstr(5, 1, self.bar.update(amount))
@@ -301,10 +481,18 @@ class Install(windows.Window):
         self.step(None, '', 0)
         try:
             self.step(Database.connect, 'Creating storage space...', 20)
-            self.step(self.setuptables, 'Making tables...', 40)
-            self.step(Manager.checkreportpref(), 'Setting up preferences', 80)
-            self.step(Manager.start(), 'Final check...', 80)
-            self.step(None, 'Done', 100)
+            self.step(InstallManager.setuptables, 'Making tables...', 40)
+            self.step(Manager.checkreportpref(), 'Setting up preferences...', 60)
+            self.step(InstallManager.createshortcuts(), 'Creating shortcuts...', 70)
+            self.step(InstallManager.createscheduledtask(), 'Creating scheduled task...', 80)
+            self.step(Manager.start(), 'Final check...', 90)
+            if self.cleaninstall:
+                self.step(None, 'Done', 100)
+            else:
+                self.step(None, 'Encountered an error, uninstalling...', 70)
+                self.step(Database.delete(), 'Deleting databases...', 50)
+                self.step(InstallManager.deleteshortcuts(), 'Deleting shortcuts...', 30)
+                self.step(InstallManager.deletescheduledtask(), 'Deleting scheduled task...', 10)
         except Exception as e:
             raise Exception(f'Installation exception: {e}')
 

@@ -37,7 +37,7 @@ class Engine:
         tintask.StatusBar.setup(1, curses.COLS-1, (curses.LINES-1,0))
         Engine.winstack.append(main)
         install = tintask.Install(0, 0, curses.LINES, curses.COLS)
-        if not install.verify():
+        if not tintask.InstallManager.verify():
             install.setup()
             #Engine.modals.append(install)
 
