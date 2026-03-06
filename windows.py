@@ -1,4 +1,6 @@
 import curses
+import os
+import sys
 import curses.textpad
 import enum
 import curses.ascii
@@ -65,9 +67,16 @@ class Logger:
     logfile = 'log.log'
 
     @staticmethod
-    def init():
-        '''Clear the log file'''
+    def init(dire='', logfile=''):
+        '''Clear and set the log file'''
+        if logfile:
+            Logger.logfile = logfile
+        if dire:
+            Logger.logfile = os.path.join(dire, Logger.logfile)
         if Logger.debug:
+            directory = os.path.dirname(Logger.logfile)
+            if directory and not os.path.exists(directory):
+                os.makedirs(os.path.dirname(Logger.logfile))
             with open(Logger.logfile, 'w+') as l:
                 l.write(f'{datetime.datetime.now()} - Starting new logger session\n')
 

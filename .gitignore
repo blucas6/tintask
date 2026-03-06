@@ -10,3 +10,7 @@ dblog.txt
 *.csv
 *.log
 *.pref
+build/
+dist/
+*.spec
+Schedule.xml

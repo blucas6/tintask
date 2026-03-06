@@ -38,8 +38,9 @@ class Engine:
         Engine.winstack.append(main)
         install = tintask.Install(0, 0, curses.LINES, curses.COLS)
         if not tintask.InstallManager.verify():
-            install.setup()
+            return install.setup()
             #Engine.modals.append(install)
+        return True
 
     @staticmethod
     def run(stdscr):
@@ -51,7 +52,8 @@ class Engine:
         windows.Logger.log(f'Terminal size [{curses.LINES},{curses.COLS}]')
         stdscr.refresh()
         try:
-            Engine.setup()
+            if not Engine.setup():
+                curses.endwin()
         except Exception as e:
             windows.Logger.log(f'Engine exception: {e}')
             Engine.errormsg()

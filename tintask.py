@@ -12,7 +12,7 @@ import dateutil.relativedelta
 import sys
 
 if sys.platform == 'win32':
-    import win32com.client as win32
+    import win32com.client
 
 microsofttaskdefault = f'''<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
@@ -191,7 +191,7 @@ class Options(windows.Window):
         elif ch == ord('g'):
             StatusBar.update(10, 'Generating report preference file...')
             curses.napms(100)
-            Manager.checkreportpref()
+            Manager.writereportpref()
             Manager.readreportpref()
             StatusBar.update(100)
             curses.napms(100)
@@ -310,9 +310,7 @@ class InstallManager:
 
     @staticmethod
     def getinstallfuncs():
-        return {
-                }
-
+        return {}
 
     @staticmethod
     def verify():
@@ -330,7 +328,7 @@ class InstallManager:
 
     @staticmethod
     def getstartshortcut():
-        if sys.platform == 'win32':
+        if sys.platform == 'win32' and InstallManager.filetype == 'executable':
             appdata = os.path.expandvars("%APPDATA%")
             return os.path.join(appdata,
                                 'Microsoft\\Windows\\Start Menu\\Programs\\',
@@ -339,23 +337,25 @@ class InstallManager:
 
     @staticmethod
     def getdesktopshortcut():
-        if sys.platform == 'win32':
+        if sys.platform == 'win32' and InstallManager.filetype == 'executable':
             desktop = os.path.join(os.path.expanduser('~'), 'Desktop')
             return os.path.join(desktop, InstallManager.shortcutname)
         return ''
 
     @staticmethod
     def deleteshortcuts():
-        if sys.platform == 'win32':
+        if sys.platform == 'win32' and InstallManager.filetype == 'executable':
             try:
                 if os.path.exists(InstallManager.getstartshortcut()):
-                    windows.Logger.log(f'Install: removing shortcut link')
+                    windows.Logger.log(f'Uninstall: removing shortcut link')
                     os.remove(InstallManager.getstartshortcut())
                 if os.path.exists(InstallManager.getdesktopshortcut()):
-                    windows.Logger.log(f'Install: removing desktop link')
+                    windows.Logger.log(f'Uninstall: removing desktop link')
                     os.remove(InstallManager.getdesktopshortcut())
             except Exception as e:
-                windows.Logger.log(f'Install: Failed to remove links - {e}')
+                windows.Logger.log(f'Uninstall: Failed to remove links - {e}')
+        else:
+            windows.Logger.log(f'Uninstall: not available for script non executables')
 
     @staticmethod
     def createshortcuts():
@@ -389,24 +389,30 @@ class InstallManager:
             command = " ".join(command)
 
             # Execute wscript shortcut creation command
-            try:
-                process = subprocess.Popen(['powershell.exe', command], stdout=sys.stdout)
-                process.communicate()
-            except Exception as e:
-                windows.Logger.log(f'Failed to create shortcut -> {e}')
+            process = subprocess.Popen(['powershell.exe', command],
+                                        stdout=subprocess.PIPE,
+                                        stderr=subprocess.PIPE) 
+            stdout,stderr = process.communicate()
+            if process.returncode != 0:
+                windows.Logger.log(f'Install: Failed to create shortcut:{stdout} Error:{stderr}')
+        else:
+            windows.Logger.log(f'Install: not available for script non executables')
 
     @staticmethod
     def scheduledtaskexists():
-       # Check if Task Already Exists
-       process = subprocess.run(f'SCHTASKS /Query /TN {InstallManager.programname}',
-                                stdout=subprocess.PIPE, 
-                                stderr=subprocess.PIPE, 
-                                text=True)
-       task_query = process.stdout
-       if InstallManager.programname in task_query:
-           windows.Logger.log('Install: scheduled task already exists')
-           return True
-       return False
+        try:
+            cmd = f'SCHTASKS /Query /TN {InstallManager.programname}'
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, 
+                                    stderr=subprocess.PIPE, text=True)
+            stdout,stderr = process.communicate()
+            if process.returncode == 0 and InstallManager.programname in stdout:
+                windows.Logger.log('Scheduled task already exists')
+                return True
+            windows.Logger.log('Scheduled task does not exist')
+            return False
+        except Exception as e:
+            windows.Logger.log(f'Failed to check task existance:{stderr} Error:{stderr}')
+            return False
 
     @staticmethod
     def createscheduledtask():
@@ -422,28 +428,29 @@ class InstallManager:
             command = f"SCHTASKS /Create /TN {InstallManager.programname} /XML \"{fxml.name}\""
 
             # Execute wscript shortcut creation command
-            try:
-                process = subprocess.Popen(command, stdout=sys.stdout)
-                process.communicate()
-            except Exception as e:
-                windows.Logger.log(f'Install: failed to create scheduled task -> {e}')
+            process = subprocess.Popen(command, stdout=subprocess.PIPE,
+                                        stderr=subprocess.PIPE)
+            stdout,stderr = process.communicate()
+            if process.returncode != 0:
+                windows.Logger.log(f'Install: Failed to create scheduled task:{stdout} Error:{stderr}')
+        else:
+            windows.Logger.log(f'Install: not available for script non executables')
 
     @staticmethod
     def deletescheduledtask():
         if sys.platform == 'win32' and InstallManager.filetype == 'executable':
-            if InstallManager.scheduledtaskexists():
+            if not InstallManager.scheduledtaskexists():
                 return
 
-            windows.Logger.log('Install: deleting scheduled task...')
-            try:
-                process = subprocess.run(f'SCHTASKS /DELETE /F /TN {InstallManager.programname}', 
-                              stdout=subprocess.PIPE, 
-                              stderr=subprocess.PIPE, 
-                              text=True)
-                if process.stderr == 1:
-                    raise Exception
-            except Exception as e:
-                windows.Logger.log(f'Install: failed to delete scheduled task -> {e}')
+            windows.Logger.log('Uninstall: deleting scheduled task...')
+            cmd = f'SCHTASKS /DELETE /F /TN {InstallManager.programname}'
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, 
+                                        stderr=subprocess.PIPE, text=True)
+            stdout,stderr = process.communicate()
+            if process.returncode != 0:
+                windows.Logger.log(f'Uninstall: failed to delete scheduled task:{stdout} Error:{stderr}')
+        else:
+            windows.Logger.log(f'Uninstall: not available for script non executables')
 
     @staticmethod
     def getuninstallfuncs():
@@ -451,8 +458,10 @@ class InstallManager:
 
     @staticmethod
     def uninstall():
-        Database.delete()
+        Manager.delete()
         InstallManager.deleteshortcuts()
+        InstallManager.deletescheduledtask()
+        windows.Logger.log(f'Uninstall complete')
 
 class Install(windows.Window):
     def __init__(self, row, col, length, width):
@@ -466,6 +475,7 @@ class Install(windows.Window):
         self.win.addstr(4, 1, msg)
         if func:
             try:
+                windows.Logger.log(f'Install step: {msg} func:{func.__name__}')
                 func()
             except Exception as e:
                 self.cleaninstall = False
@@ -482,19 +492,21 @@ class Install(windows.Window):
         try:
             self.step(Database.connect, 'Creating storage space...', 20)
             self.step(InstallManager.setuptables, 'Making tables...', 40)
-            self.step(Manager.checkreportpref(), 'Setting up preferences...', 60)
-            self.step(InstallManager.createshortcuts(), 'Creating shortcuts...', 70)
-            self.step(InstallManager.createscheduledtask(), 'Creating scheduled task...', 80)
-            self.step(Manager.start(), 'Final check...', 90)
+            self.step(Manager.writereportpref, 'Setting up preferences...', 60)
+            self.step(InstallManager.createshortcuts, 'Creating shortcuts...', 70)
+            self.step(InstallManager.createscheduledtask, 'Creating scheduled task...', 80)
+            self.step(Manager.start, 'Final check...', 90)
             if self.cleaninstall:
                 self.step(None, 'Done', 100)
+                return True
             else:
                 self.step(None, 'Encountered an error, uninstalling...', 70)
-                self.step(Database.delete(), 'Deleting databases...', 50)
-                self.step(InstallManager.deleteshortcuts(), 'Deleting shortcuts...', 30)
-                self.step(InstallManager.deletescheduledtask(), 'Deleting scheduled task...', 10)
+                self.step(Database.delete, 'Deleting databases...', 50)
+                self.step(InstallManager.deleteshortcuts, 'Deleting shortcuts...', 30)
+                self.step(InstallManager.deletescheduledtask, 'Deleting scheduled task...', 10)
         except Exception as e:
             raise Exception(f'Installation exception: {e}')
+        return False
 
     def draw(self):
         self.win.addstr(0, 0, 'WELCOME TO TINTASK')
@@ -517,13 +529,13 @@ class Database:
 
     @staticmethod
     def delete():
-        try:
-            dbfile = Database.getdbpath()
-            if os.path.exists(dbfile):
+        dbfile = Database.getdbpath()
+        if os.path.exists(dbfile):
+            try:
                 os.remove(dbfile)
-                os.rmdir(os.path.dirname(dbfile))
-        except Exception as e:
-            windows.Logger.log(f'Uninstalling error: {e}')
+                windows.Logger.log(f'Uninstall: deleted database')
+            except Exception as e:
+                windows.Logger.log(f'Uninstall: failed to delete database -> {e}')
 
     @staticmethod
     def createtable(table, columns):
@@ -554,12 +566,7 @@ class Database:
 
     @staticmethod
     def getdbpath():
-        home = os.path.expanduser('~')
-        if sys.platform == 'win32':
-            return os.path.join(home, os.environ['LOCALAPPDATA'], 'TinTask', 'tintask.db')
-            #return os.path.join(home, 'TinTask', 'tintask.db')
-        else:
-            return os.path.join(home, '.local', 'share', 'tintask', 'tintask.db')
+        return os.path.join(Manager.getworkingdirectory(), 'tintask.db')
 
     @staticmethod
     def connect():
@@ -697,6 +704,26 @@ class Manager:
     viewingdate = datetime.datetime.now()
     reportpref = ''
     reportpreffile = 'report.pref'
+    
+    @staticmethod
+    def getworkingdirectory():
+        home = os.path.expanduser('~')
+        if sys.platform == 'win32':
+            return os.path.join(home, os.environ['LOCALAPPDATA'], 'TinTask')
+        else:
+            return os.path.join(home, '.local', 'share', 'tintask')
+
+    @staticmethod
+    def delete():
+        Database.delete()
+        '''
+        try:
+            if os.path.exists(windows.Logger.logfile):
+                os.remove(windows.Logger.logfile)
+            os.rmdir(os.path.dirname(windows.Logger.logfile))
+        except Exception as e:
+            windows.Logger.log(f'Failed to delete log file - {e}')
+        '''
 
     @staticmethod
     def splice(text, width):
@@ -725,7 +752,7 @@ class Manager:
         if sys.platform != 'win32':
             return
         try:
-            outlook = win32.Dispatch('outlook.application')
+            outlook = win32com.client.Dispatch('outlook.application')
             mail = outlook.CreateItem(0)
             mail.To = reportdata.mailto
             mail.Subject = reportdata.subject
@@ -758,10 +785,9 @@ class Manager:
         return date
 
     @staticmethod
-    def checkreportpref():
-        if not os.path.exists(Manager.reportpreffile):
-            with open(Manager.reportpreffile, 'w+') as file:
-                file.write(reportprefdefault)
+    def writereportpref():
+        with open(Manager.reportpreffile, 'w+') as file:
+            file.write(reportprefdefault)
 
     @staticmethod
     def readreportpref():
