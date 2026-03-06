@@ -1095,15 +1095,16 @@ class SideMenu(windows.Window):
                 self.filter = filter
             self.win.addstr(2, 10, self.filter, curses.A_REVERSE)
             self.filtering = False
+        currentmonth = Manager.viewingdate
+        calendar = windows.mycalendar(currentmonth)
         row = 4
         col = 2
         colspace = 2
         rowspace = 1
-        maxrow = self.length-2
-        currentmonth = Manager.viewingdate
-        calendar = windows.mycalendar(currentmonth)
+        maxcol = self.width-col
+        maxrow = self.length-row
         pts = []
-        colpts = math.floor(self.width / (calendar.width+colspace))
+        colpts = math.floor(maxcol / (calendar.width+colspace))
         rowpts = math.floor(maxrow / (calendar.length+rowspace))
         for _ in range(rowpts):
             for _ in range(colpts):
@@ -1127,25 +1128,31 @@ class SideMenu(windows.Window):
         col = 1
         try:
             reportdata = Manager.loadreportdata()
-            if reportdata.mailto:
-                text = f'To: {reportdata.mailto}'
-                am = Manager.wrap(text, self.width)
-                self.win.addstr(row, col, text)
-                row += am
-            if reportdata.subject:
-                text = f'Subject: {reportdata.subject}'
-                am = Manager.wrap(text, self.width)
-                self.win.addstr(row, col, text)
-                row += am
-            row += 1
-            windows.Logger.log(reportdata.body)
-            for line in reportdata.body:
-                am = Manager.wrap(line, self.width)
-                self.win.addstr(row, col, line)
-                row += am
         except Exception as e:
             self.win.addstr(row, col, f'Unable to load {Manager.reportpreffile} file, check log for failures')
             windows.Logger.log(f'Error ({Manager.reportpreffile}): {e}')
+        else:
+            try:
+                if reportdata.mailto:
+                    text = f'To: {reportdata.mailto}'
+                    am = Manager.wrap(text, self.width)
+                    self.win.addstr(row, col, text)
+                    row += am
+                if reportdata.subject:
+                    text = f'Subject: {reportdata.subject}'
+                    am = Manager.wrap(text, self.width)
+                    self.win.addstr(row, col, text)
+                    row += am
+                row += 1
+                windows.Logger.log(reportdata.body)
+                for line in reportdata.body:
+                    splice,am = Manager.splice(line, self.width-1)
+                    for ix,txt in enumerate(splice):
+                        if row+ix < self.length-3:
+                            self.win.addstr(row+ix, col, txt)
+                    row += am
+            except Exception as e:
+                pass
 
     def footer(self, increment=''):
         for ix in range(self.width-1):
