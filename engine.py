@@ -53,7 +53,7 @@ class Engine:
         stdscr.refresh()
         try:
             if not Engine.setup():
-                curses.endwin()
+                raise SystemExit
         except Exception as e:
             windows.Logger.log(f'Engine exception: {e}')
             Engine.errormsg()

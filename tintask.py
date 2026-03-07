@@ -1,4 +1,5 @@
 import calendar
+import time
 import subprocess
 import curses.ascii
 import curses.textpad
@@ -14,32 +15,13 @@ import sys
 if sys.platform == 'win32':
     import win32com.client
 
-microsofttaskdefault = f'''<?xml version="1.0" encoding="UTF-16"?>
+microsofttask_start = f'''
+<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
    <Triggers>
-      <CalendarTrigger>
-      <StartBoundary>2024-05-13T17:00:00</StartBoundary>
-      <Enabled>true</Enabled>
-      <ScheduleByWeek>
-         <DaysOfWeek>
-            <Monday />
-            <Tuesday />
-            <Wednesday />
-            <Thursday />
-         </DaysOfWeek>
-         <WeeksInterval>1</WeeksInterval>
-      </ScheduleByWeek>
-      </CalendarTrigger>
-      <CalendarTrigger>
-      <StartBoundary>2024-05-20T03:30:00</StartBoundary>
-      <Enabled>true</Enabled>
-      <ScheduleByWeek>
-         <DaysOfWeek>
-            <Friday />
-         </DaysOfWeek>
-         <WeeksInterval>2</WeeksInterval>
-      </ScheduleByWeek>
-      </CalendarTrigger>
+'''.strip()
+
+microsofttask_end = f'''
    </Triggers>
    <Actions>
       <Exec>
@@ -47,7 +29,20 @@ microsofttaskdefault = f'''<?xml version="1.0" encoding="UTF-16"?>
       </Exec>
    </Actions>
 </Task>
-'''
+'''.strip()
+
+microsofttask_day = f'''
+    <CalendarTrigger>
+    <StartBoundary>__STARTDATE__</StartBoundary>
+    <Enabled>true</Enabled>
+    <ScheduleByWeek>
+        <DaysOfWeek>
+        __WEEKDAY__
+        </DaysOfWeek>
+        <WeeksInterval>1</WeeksInterval>
+    </ScheduleByWeek>
+    </CalendarTrigger>
+'''.strip()
 
 reportprefdefault = """
 __MAILTO__first.last@company.com
@@ -291,8 +286,6 @@ class Mail(windows.Window):
         return None,None
 
 class DBTables:
-    #tasks = 'tasks'
-    #tasks_columns = 'date DATE, tag TEXT, task TEXT'
     tasks = 'tasks'
     tasks_columns = 'id INTEGER PRIMARY KEY AUTOINCREMENT, date DATE, task TEXT'
     tags = 'tags'
@@ -307,6 +300,24 @@ class InstallManager:
     shortcutname = 'tintask.lnk'
     filetype = ''
     programname = 'tintask'
+    times = {
+        'Monday': 0,
+        'Tuesday': 0,
+        'Wednesday': 0,
+        'Thursday': 0,
+        'Friday': 0,
+        'Saturday': 0,
+        'Sunday': 0,
+    }
+    choices = {
+        'scheduled': False,
+        'desktop': True,
+        'start': False,
+    }
+
+    @staticmethod
+    def displaytime(day):
+        return time.strftime('%H:%M:%S', time.gmtime(InstallManager.times[day]))
 
     @staticmethod
     def getinstallfuncs():
@@ -358,18 +369,8 @@ class InstallManager:
             windows.Logger.log(f'Uninstall: not available for script non executables')
 
     @staticmethod
-    def createshortcuts():
+    def createstartshortcut():
         if sys.platform == 'win32' and InstallManager.filetype == 'executable':
-            windows.Logger.log(f'Install: creating desktop shortcut')
-
-            # desktop shortcut
-            shell = win32com.client.Dispatch('WScript.shell')
-            shortcut = shell.createShortcut(InstallManager.getdesktopshortcut())
-            shortcut.TargetPath = sys.executable 
-            shortcut.WorkingDirectory = '.'
-            shortcut.IconLocation = sys.executable
-            shortcut.save()
-
             windows.Logger.log(f'Install: creating start menu shortcut')
             # Icon source locations: https://www.digitalcitizen.life/where-find-most-windows-10s-native-icons/
             icon_path="pifmgr.dll"
@@ -399,6 +400,21 @@ class InstallManager:
             windows.Logger.log(f'Install: not available for script non executables')
 
     @staticmethod
+    def createdesktopshortcut():
+        if sys.platform == 'win32' and InstallManager.filetype == 'executable':
+            windows.Logger.log(f'Install: creating desktop shortcut')
+
+            # desktop shortcut
+            shell = win32com.client.Dispatch('WScript.shell')
+            shortcut = shell.createShortcut(InstallManager.getdesktopshortcut())
+            shortcut.TargetPath = sys.executable 
+            shortcut.WorkingDirectory = '.'
+            shortcut.IconLocation = sys.executable
+            shortcut.save()
+        else:
+            windows.Logger.log(f'Install: not available for script non executables')
+
+    @staticmethod
     def scheduledtaskexists():
         try:
             cmd = f'SCHTASKS /Query /TN {InstallManager.programname}'
@@ -422,7 +438,18 @@ class InstallManager:
             
             windows.Logger.log(f'Install: creating scheduled task')
             with open('Schedule.xml', 'w+') as fxml:
-                fxml.write(microsofttaskdefault)
+                schema = microsofttask_start + '\n'
+                for day,time in InstallManager.times.items():
+                    if time == 0:
+                        continue
+                    midnight = datetime.datetime.combine(datetime.datetime.today(), datetime.time.min)
+                    td = midnight + datetime.timedelta(seconds=time)
+                    startdate = td.strftime('%Y-%m-%dT%H:%M:00')
+                    dayschema = microsofttask_day.replace('__STARTDATE__', startdate)
+                    dayschema = dayschema.replace('__WEEKDAY__', f'<{day} />')
+                    schema += dayschema + '\n'
+                schema += microsofttask_end
+                fxml.write(schema)
 
             # Compose command for window's task scheduler
             command = f"SCHTASKS /Create /TN {InstallManager.programname} /XML \"{fxml.name}\""
@@ -468,6 +495,8 @@ class Install(windows.Window):
         super().__init__(row, col, length, width)
         self.bar = windows.Bar(30)
         self.cleaninstall = True
+        self.currenttime = list(InstallManager.times.keys())[0]
+        self.currenttimeidx = 0
     
     def step(self, func, msg, amount):
         self.win.clear()
@@ -487,14 +516,97 @@ class Install(windows.Window):
         curses.doupdate()
         curses.napms(1000)
     
+    def displaychoice(self, row, col, prefix, choice):
+        self.win.addstr(row, col, f'{prefix[0]}', curses.A_UNDERLINE)
+        status = 'yes' if choice else 'no'
+        self.win.addstr(row, col+1, f'{prefix[1:]}: {status}')
+    
+    def displaychoices(self):
+        row = 2
+        col = 1
+        self.displaychoice(row, col, 'Scheduled task', InstallManager.choices['scheduled'])
+        row += 1
+        if InstallManager.choices['scheduled']:
+            col += 1
+            text = 'N: Next day  '
+            self.win.addstr(row, col, text)
+            col += len(text) + 1
+            text = 'K: Increment time  '
+            self.win.addstr(row, col, text)
+            col += len(text) + 1
+            text = 'J: Decrement time'
+            self.win.addstr(row, col, text)
+            col = 4
+            row += 1
+            for day,time in InstallManager.times.items():
+                if self.currenttime == day:
+                    attrib = curses.A_REVERSE
+                else:
+                    attrib = curses.A_NORMAL
+                self.win.addstr(row, col, f'{day}:\t{InstallManager.displaytime(day)}', attrib)
+                row += 1
+            col -= 3
+            row += 1
+        self.displaychoice(row, col, 'Desktop shortcut', InstallManager.choices['desktop'])
+        row += 1
+        self.displaychoice(row, col, 'Menu shortcut', InstallManager.choices['start'])
+        row += 1
+
+        row += 2
+        self.win.addstr(row, col, 'Done? <enter> Quit? <esc>')
+
+    def configure(self):
+        while True:
+            self.win.clear()
+            self.win.addstr(0, 0, 'TINTASK CONFIGURATION')
+            self.displaychoices()
+
+            ch = self.win.getch()
+
+            if ch == curses.ascii.NL:
+                return True
+            elif ch == curses.ascii.ESC:
+                return False
+            elif ch == ord('k') or ch == ord('j'):
+                td = 60 * 15
+                if ch == ord('j'):
+                    td *= -1
+                newt = InstallManager.times[self.currenttime] + td
+                if newt < 0:
+                    InstallManager.times[self.currenttime] = 60*60*24 - 60*15
+                elif newt > 60*60*24:
+                    InstallManager.times[self.currenttime] = 60*15
+                else:
+                    InstallManager.times[self.currenttime] = newt
+            elif ch == ord('d'):
+                InstallManager.choices['desktop'] = not InstallManager.choices['desktop']
+            elif ch == ord('m'):
+                InstallManager.choices['start'] = not InstallManager.choices['start']
+            elif ch == ord('n'):
+                t = list(InstallManager.times.keys())
+                self.currenttimeidx += 1
+                if self.currenttimeidx >= len(t):
+                    self.currenttimeidx = 0
+                self.currenttime = t[self.currenttimeidx]
+            elif ch == ord('s'):
+                InstallManager.choices['scheduled'] = not InstallManager.choices['scheduled']
+    
     def setup(self):
+        if sys.platform == 'win32' and InstallManager.filetype == 'executable':
+            if not self.configure():
+                return False
         self.step(None, '', 0)
         try:
             self.step(Database.connect, 'Creating storage space...', 20)
             self.step(InstallManager.setuptables, 'Making tables...', 40)
             self.step(Manager.writereportpref, 'Setting up preferences...', 60)
-            self.step(InstallManager.createshortcuts, 'Creating shortcuts...', 70)
-            self.step(InstallManager.createscheduledtask, 'Creating scheduled task...', 80)
+            if sys.platform == 'win32':
+                if InstallManager.choices['start']:
+                    self.step(InstallManager.createstartshortcut, 'Creating shortcuts...', 70)
+                if InstallManager.choices['desktop']:
+                    self.step(InstallManager.createdesktopshortcut, 'Creating shortcuts...', 70)
+                if InstallManager.choices['scheduled']:
+                    self.step(InstallManager.createscheduledtask, 'Creating scheduled task...', 80)
             self.step(Manager.start, 'Final check...', 90)
             if self.cleaninstall:
                 self.step(None, 'Done', 100)
