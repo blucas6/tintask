@@ -393,10 +393,11 @@ class InstallManager:
                 windows.Logger.log('Install: shortcut already exists.')
                 return
 
+            pathtoexe = os.path.join(Manager.getworkingdirectory(), f'{InstallManager.programname}.exe')
             # Compose wscript shortcut creation command
             command = [f'$WshShell = New-Object -COMObject WScript.Shell;',
                        f'$Shortcut = $WshShell.CreateShortcut("{InstallManager.getstartshortcut()}");',
-                       f'$Shortcut.TargetPath = "{sys.executable}";',
+                       f'$Shortcut.TargetPath = "{pathtoexe}";',
                        f'$Shortcut.IconLocation = "{icon_path},{icon_index}";',
                        '$Shortcut.Save()']
             command = " ".join(command)
@@ -416,12 +417,13 @@ class InstallManager:
         if sys.platform == 'win32' and InstallManager.filetype == 'executable':
             windows.Logger.log(f'Install: creating desktop shortcut')
 
+            pathtoexe = os.path.join(Manager.getworkingdirectory(), f'{InstallManager.programname}.exe')
             # desktop shortcut
             shell = win32com.client.Dispatch('WScript.shell')
             shortcut = shell.createShortcut(InstallManager.getdesktopshortcut())
-            shortcut.TargetPath = sys.executable 
+            shortcut.TargetPath = pathtoexe 
             shortcut.WorkingDirectory = '.'
-            shortcut.IconLocation = sys.executable
+            shortcut.IconLocation = pathtoexe
             shortcut.save()
         else:
             windows.Logger.log(f'Install: not available for script non executables')
