@@ -3,6 +3,7 @@ import engine
 import sys
 import os
 import tintask
+import time
 
 if __name__ == '__main__':
     if getattr(sys, 'frozen', False):
@@ -11,8 +12,7 @@ if __name__ == '__main__':
     else:
         tintask.InstallManager.filetype = 'script'
     if len(sys.argv) > 1 and sys.argv[1] == '--uninstall':
-        print()
-        print('TinTask is uninstalling...', end='')
+        print('\nTinTask is uninstalling...', end='')
         try:
             tintask.InstallManager.uninstall()
             print('done!')

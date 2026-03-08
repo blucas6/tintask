@@ -1,4 +1,5 @@
 import calendar
+import shutil
 import time
 import subprocess
 import curses.ascii
@@ -25,7 +26,7 @@ microsofttask_end = f'''
    </Triggers>
    <Actions>
       <Exec>
-         <Command>{sys.executable}</Command>
+         <Command>__EXE__</Command>
       </Exec>
    </Actions>
 </Task>
@@ -313,7 +314,18 @@ class InstallManager:
         'scheduled': False,
         'desktop': True,
         'start': False,
+        'path': False,
     }
+
+    @staticmethod
+    def copyexe():
+        shutil.copy(sys.executable, Manager.getworkingdirectory())
+    
+    @staticmethod
+    def deleteexe():
+        pathtoexe = os.path.join(Manager.getworkingdirectory(), f'{InstallManager.programname}.exe')
+        if os.path.exists(pathtoexe):
+            os.remove(pathtoexe)
 
     @staticmethod
     def displaytime(day):
@@ -415,6 +427,43 @@ class InstallManager:
             windows.Logger.log(f'Install: not available for script non executables')
 
     @staticmethod
+    def addtopath():
+        if sys.platform == 'win32' and InstallManager.filetype == 'executable':
+            windows.Logger.log(f'Install: adding program to the path')
+
+            cmd = ';'.join(
+                ['$oldp = [Environment]::GetEnvironmentVariable("Path", "User")',
+                f'$newp = "{Manager.getworkingdirectory()}"',
+                'if ($oldP -split ";" -notcontains $newp) {',
+                    '$updatep = "$oldp;$newp"',
+                    '[Environment]::SetEnvironmentVariable("Path", $updateP, "User")',
+                '}'
+            ])
+            process = subprocess.Popen(['powershell.exe', cmd],
+                                       stdout=subprocess.PIPE,
+                                       stderr=subprocess.PIPE)
+            stdout,stderr = process.communicate()
+            if process.returncode != 0:
+                windows.Logger.log(f'Install: Failed to add to path:{stdout} Error:{stderr}')
+        else:
+            windows.Logger.log(f'Install: not available for script non executables')
+    
+    @staticmethod
+    def removefrompath():
+        if sys.platform == 'win32' and InstallManager.filetype == 'executable':
+            windows.Logger.log(f'Uninstall: removing program from the path')
+
+            cmd = '[Environment]::SetEnvironmentVariable("Path", ($env:Path -split ";" | Where-Object {$_ -ne "' \
+                + Manager.getworkingdirectory() + '"}) -join ";", "User")'
+            process = subprocess.Popen(['powershell.exe', cmd], stdout=subprocess.PIPE,
+                                       stderr=subprocess.PIPE)
+            stdout,stderr = process.communicate()
+            if process.returncode != 0:
+                windows.Logger.log(f'Uninstall: Failed to remove from path:{stdout} Error:{stderr}')
+        else:
+            windows.Logger.log(f'Uninstall: not available for script non executables')
+
+    @staticmethod
     def scheduledtaskexists():
         try:
             cmd = f'SCHTASKS /Query /TN {InstallManager.programname}'
@@ -448,7 +497,7 @@ class InstallManager:
                     dayschema = microsofttask_day.replace('__STARTDATE__', startdate)
                     dayschema = dayschema.replace('__WEEKDAY__', f'<{day} />')
                     schema += dayschema + '\n'
-                schema += microsofttask_end
+                schema += microsofttask_end.replace('__EXE__', os.path.join(Manager.getworkingdirectory(), f'{InstallManager.programname}.exe'))
                 fxml.write(schema)
 
             # Compose command for window's task scheduler
@@ -486,8 +535,10 @@ class InstallManager:
     @staticmethod
     def uninstall():
         Manager.delete()
+        InstallManager.deleteexe()
         InstallManager.deleteshortcuts()
         InstallManager.deletescheduledtask()
+        InstallManager.removefrompath()
         windows.Logger.log(f'Uninstall complete')
 
 class Install(windows.Window):
@@ -551,6 +602,8 @@ class Install(windows.Window):
         row += 1
         self.displaychoice(row, col, 'Menu shortcut', InstallManager.choices['start'])
         row += 1
+        self.displaychoice(row, col, 'Add to PATH', InstallManager.choices['path'])
+        row += 1
 
         row += 2
         self.win.addstr(row, col, 'Done? <enter> Quit? <esc>')
@@ -582,6 +635,8 @@ class Install(windows.Window):
                 InstallManager.choices['desktop'] = not InstallManager.choices['desktop']
             elif ch == ord('m'):
                 InstallManager.choices['start'] = not InstallManager.choices['start']
+            elif ch == ord('a'):
+                InstallManager.choices['path'] = not InstallManager.choices['path']
             elif ch == ord('n'):
                 t = list(InstallManager.times.keys())
                 self.currenttimeidx += 1
@@ -597,25 +652,30 @@ class Install(windows.Window):
                 return False
         self.step(None, '', 0)
         try:
-            self.step(Database.connect, 'Creating storage space...', 20)
-            self.step(InstallManager.setuptables, 'Making tables...', 40)
-            self.step(Manager.writereportpref, 'Setting up preferences...', 60)
+            self.step(Database.connect, 'Creating storage space...', 10)
+            self.step(InstallManager.setuptables, 'Making tables...', 20)
+            self.step(InstallManager.copyexe, 'Copying executable...', 30)
+            self.step(Manager.writereportpref, 'Setting up preferences...', 40)
             if sys.platform == 'win32':
                 if InstallManager.choices['start']:
-                    self.step(InstallManager.createstartshortcut, 'Creating shortcuts...', 70)
+                    self.step(InstallManager.createstartshortcut, 'Creating shortcuts...', 50)
                 if InstallManager.choices['desktop']:
-                    self.step(InstallManager.createdesktopshortcut, 'Creating shortcuts...', 70)
+                    self.step(InstallManager.createdesktopshortcut, 'Creating shortcuts...', 60)
                 if InstallManager.choices['scheduled']:
-                    self.step(InstallManager.createscheduledtask, 'Creating scheduled task...', 80)
+                    self.step(InstallManager.createscheduledtask, 'Creating scheduled task...', 70)
+                if InstallManager.choices['path']:
+                    self.step(InstallManager.addtopath, 'Adding program to the path...', 80)
             self.step(Manager.start, 'Final check...', 90)
             if self.cleaninstall:
                 self.step(None, 'Done', 100)
                 return True
             else:
                 self.step(None, 'Encountered an error, uninstalling...', 70)
+                self.step(InstallManager.deleteexe, 'Deleting executable...', 60)
                 self.step(Database.delete, 'Deleting databases...', 50)
                 self.step(InstallManager.deleteshortcuts, 'Deleting shortcuts...', 30)
-                self.step(InstallManager.deletescheduledtask, 'Deleting scheduled task...', 10)
+                self.step(InstallManager.deletescheduledtask, 'Deleting scheduled task...', 20)
+                self.step(InstallManager.removefrompath, 'Deleting program from path', 10)
         except Exception as e:
             raise Exception(f'Installation exception: {e}')
         return False
@@ -685,15 +745,6 @@ class Database:
         try:
             dbfile = Database.getdbpath()
             Database.dbfile = os.path.expanduser(dbfile)
-            if not os.path.exists(os.path.dirname(Database.dbfile)):
-                windows.Logger.log(f'Making folders for database - {Database.dbfile}')
-                os.makedirs(os.path.dirname(Database.dbfile))
-            else:
-                windows.Logger.log(f'Database exists')
-        except Exception as e:
-            windows.Logger.log(f'Database creation error: {e}')
-            raise Exception(e)
-        try:
             windows.Logger.log(f'Connecting to "{Database.dbfile}"')
             Database.dbcon = sqlite3.connect(Database.dbfile)
             Database.dbcon.execute("PRAGMA foreign_keys = ON;")
@@ -821,9 +872,12 @@ class Manager:
     def getworkingdirectory():
         home = os.path.expanduser('~')
         if sys.platform == 'win32':
-            return os.path.join(home, os.environ['LOCALAPPDATA'], 'TinTask')
+            path = os.path.join(home, os.environ['LOCALAPPDATA'], 'TinTask')
         else:
-            return os.path.join(home, '.local', 'share', 'tintask')
+            path = os.path.join(home, '.local', 'share', 'tintask')
+        if not os.path.exists(path):
+            os.makedirs(path)
+        return path
 
     @staticmethod
     def delete():
