@@ -1214,7 +1214,7 @@ class SideMenu(windows.Window):
         colspace = 2
         rowspace = 1
         maxcol = self.width-col
-        maxrow = self.length-row
+        maxrow = self.length-1-row
         pts = []
         colpts = math.floor(maxcol / (calendar.width+colspace))
         rowpts = math.floor(maxrow / (calendar.length+rowspace))
