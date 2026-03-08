@@ -181,7 +181,8 @@ class Options(windows.Window):
 
     def draw(self):
         self.displaywindow()
-        _,_ = windows.option(self.win, 'G', 'Generate report preference file', (3,1))
+        er,_ = windows.option(self.win, 'G', 'Generate report preference file', (3,2))
+        _,_ = windows.option(self.win, 'E', 'Edit report preference file', (er,2))
 
     def input(self, ch):
         if ch == curses.ascii.ESC:
@@ -193,6 +194,13 @@ class Options(windows.Window):
             Manager.readreportpref()
             StatusBar.update(100)
             curses.napms(100)
+        elif ch == ord('e'):
+            if sys.platform == 'win32':
+                if not Manager.editreportpref():
+                    self.win.addstr(6, 2, 'Failed to open report preference file!')
+            else:
+                self.win.addstr(6, 2, 'Currently unavailable for non Windows Operating Systems')
+
         return None,None
 
 class Mail(windows.Window):
@@ -871,8 +879,21 @@ class Manager:
     BRIEF_FORMAT = '%m/%d'
     currentday = datetime.datetime.now()
     viewingdate = datetime.datetime.now()
-    reportpref = ''
+    reportprefcontents = ''
     reportpreffile = 'report.pref'
+
+    @staticmethod
+    def editreportpref():
+        try:
+            rp = os.path.join(Manager.getworkingdirectory(), Manager.reportpreffile)
+            process = subprocess.Popen(['notepad.exe', rp],
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE)
+            process.communicate()
+            return True
+        except Exception as e:
+            windows.Logger.log(f'Failed to edit report pref file: {e}')
+        return False
     
     @staticmethod
     def getworkingdirectory():
@@ -917,7 +938,7 @@ class Manager:
         start,end = Manager.getweek(Manager.viewingdate)
         start = Manager.datetobriefformat(start)
         end = Manager.datetobriefformat(end)
-        return ReportData(mytasks, start, end, Manager.reportpref)
+        return ReportData(mytasks, start, end, Manager.reportprefcontents)
 
     @staticmethod
     def sendemail(reportdata):
@@ -958,18 +979,20 @@ class Manager:
 
     @staticmethod
     def writereportpref():
-        with open(Manager.reportpreffile, 'w+') as file:
+        rp = os.path.join(Manager.getworkingdirectory(), Manager.reportpreffile)
+        with open(rp, 'w+') as file:
             file.write(reportprefdefault)
 
     @staticmethod
     def readreportpref():
         try:
-            if os.path.exists(Manager.reportpreffile):
-                with open(Manager.reportpreffile, 'r') as rp:
-                    Manager.reportpref = rp.readlines()
-                windows.Logger.log(f'Loaded preferences file ->\n{Manager.reportpref}')
+            rp = os.path.join(Manager.getworkingdirectory(), Manager.reportpreffile)
+            if os.path.exists(rp):
+                with open(rp, 'r') as rfile:
+                    Manager.reportprefcontents = rfile.readlines()
+                windows.Logger.log(f'Loaded preferences file ->\n{Manager.reportprefcontents}')
             else:
-                windows.Logger.log(f'Preference file "{Manager.reportpreffile}" does not exist')
+                windows.Logger.log(f'Preference file "{rp}" does not exist')
         except Exception as e:
             windows.Logger.log(f'Error: Failed to load preferences file! -> {e}')
 
