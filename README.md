@@ -1,14 +1,15 @@
 # tintask
 Lightweight, command line task tracking tool
 
-# Main Menu
-- Add tasks 
-- Modify tasks
+# Adding / Editing Tasks 
+- Add tasks you accomplished today, with or without tags
+- Modify specific dates and their respective tasks
 
-![example](images/example.png)
+![addtask](images/addtask.png)
 
 # Calendar View
-- View and filter tasks by date
+- Dates containing tasks are highlighted
+- Filter by tag to only see specific categories
 
 ![calendar](images/calendar.png)
 
