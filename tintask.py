@@ -16,6 +16,8 @@ import sys
 if sys.platform == 'win32':
     import win32com.client
 
+__VERSION__ = '1.0.0'
+
 microsofttask_start = f'''
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
@@ -319,13 +321,15 @@ class InstallManager:
 
     @staticmethod
     def copyexe():
-        shutil.copy(sys.executable, Manager.getworkingdirectory())
+        if InstallManager.filetype == 'executable':
+            shutil.copy(sys.executable, Manager.getworkingdirectory())
     
     @staticmethod
     def deleteexe():
-        pathtoexe = os.path.join(Manager.getworkingdirectory(), f'{InstallManager.programname}.exe')
-        if os.path.exists(pathtoexe):
-            os.remove(pathtoexe)
+        if InstallManager.filetype == 'executable':
+            pathtoexe = os.path.join(Manager.getworkingdirectory(), f'{InstallManager.programname}.exe')
+            if os.path.exists(pathtoexe):
+                os.remove(pathtoexe)
 
     @staticmethod
     def displaytime(day):
@@ -1396,7 +1400,8 @@ class StatusBar:
 
     @staticmethod
     def update(progress=0, message=''):
-        StatusBar.win.addstr(0, 0, ' '*(StatusBar.width-1))
+        StatusBar.win.clear()
+        StatusBar.win.addstr(0, 1, f'v{__VERSION__}')
         StatusBar.win.addstr(0,
                              StatusBar.width-StatusBar.bar.totalsize-1,
                              StatusBar.bar.update(0))

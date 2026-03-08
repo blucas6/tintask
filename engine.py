@@ -34,7 +34,7 @@ class Engine:
             sidemenu.mode = 'tasks'
             Engine.winstack.append(sidemenu)
         main = tintask.TinTask(0, 0, curses.LINES-1, end_column)
-        tintask.StatusBar.setup(1, curses.COLS-1, (curses.LINES-1,0))
+        tintask.StatusBar.setup(1, curses.COLS, (curses.LINES-1,0))
         Engine.winstack.append(main)
         install = tintask.Install(0, 0, curses.LINES, curses.COLS)
         if not tintask.InstallManager.verify():

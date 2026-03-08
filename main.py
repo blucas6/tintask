@@ -3,7 +3,6 @@ import engine
 import sys
 import os
 import tintask
-import time
 
 if __name__ == '__main__':
     if getattr(sys, 'frozen', False):
