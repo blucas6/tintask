@@ -12,6 +12,14 @@ Lightweight, command line task tracking tool
 
     ![install](images/install.png)
 
+
+### Build it Yourself
+- `pyinstaller --onefile main.py --icon=images/icon.png --name=tintask.exe`
+
+### Windows Disclaimer
+- Some attributes such as underlines or bold don't show in Windows Terminal
+- Switch to Windows Console Host in settings for best use
+
 ## Adding / Editing Tasks 
 - Add tasks you accomplished today, with or without tags
 - Modify specific dates and their respective tasks
@@ -33,7 +41,3 @@ Lightweight, command line task tracking tool
 - Configurable report format that can be automatically sent in an email
 
 ![report](images/report.png)
-
-
-### Build it Yourself
-- `pyinstaller --onefile main.py --icon=images/icon.png --name=tintask.exe`
