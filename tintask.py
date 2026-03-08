@@ -171,11 +171,11 @@ class Options(windows.Window):
 
     def footer(self):
         msg = f'<esc> to close'
-        self.win.addstr(self.length-2, self.width-len(msg)-3, msg)
+        self.win.addstr(self.length-1, self.width-len(msg)-3, msg)
 
     def displaywindow(self):
         self.win.erase()
-        curses.textpad.rectangle(self.win, 0, 0, self.length-2, self.width-2)
+        curses.textpad.rectangle(self.win, 0, 0, self.length-1, self.width-2)
         self.header()
         self.footer()
 
@@ -211,7 +211,7 @@ class Mail(windows.Window):
 
     def footer(self):
         msg = f'<esc> to close'
-        self.win.addstr(self.length-2, self.width-len(msg)-3, msg)
+        self.win.addstr(self.length-1, self.width-len(msg)-3, msg)
 
     def displaywindow(self, reportdata: ReportData | None = None):
         self.win.addstr(1, 1, 'Outlook Email Report')
@@ -244,7 +244,7 @@ class Mail(windows.Window):
             self.win.noutrefresh()
 
     def draw(self):
-        curses.textpad.rectangle(self.win, 0, 0, self.length-2, self.width-2)
+        curses.textpad.rectangle(self.win, 0, 0, self.length-1, self.width-2)
         if sys.platform != 'win32':
             text = 'Currently unavailable for non Windows Operating Systems'
             spliced,_ = Manager.splice(text, self.width-3)
@@ -1250,7 +1250,7 @@ class SideMenu(windows.Window):
         start = Manager.datetobriefformat(start)
         end = Manager.datetobriefformat(end)
         weekmark = f'{start} - {end}'
-        self.win.addstr(2, self.width-len(weekmark)-5, weekmark, curses.A_REVERSE)
+        self.win.addstr(2, self.width-len(weekmark)-1, weekmark, curses.A_REVERSE)
         tasks = Manager.gettasks(Manager.viewingdate, groupby='date')
         er = 3
         for date, vals in tasks.items():
@@ -1434,7 +1434,7 @@ class AddMenu(windows.Window):
 
     def displaywindow(self):
         self.win.erase()
-        curses.textpad.rectangle(self.win, 0, 0, self.length-2, self.width-2)
+        curses.textpad.rectangle(self.win, 0, 0, self.length-1, self.width-2)
         self.header()
         self.footer()
         row = 3
@@ -1459,6 +1459,7 @@ class AddMenu(windows.Window):
 
     def draw(self):
         self.displaywindow()
+        row = 5
         if self.status == MenuState.EDITTAG:
             self.status = MenuState.DONE
             edit = windows.Editor((self.row+3,self.col+1+len(self.taglb)), 1, self.width-2-len(self.taglb)-self.col-1)
@@ -1474,7 +1475,7 @@ class AddMenu(windows.Window):
                 msg = self.rawtasks
             else:
                 msg = '- '
-            edit = windows.Editor((self.row+5,self.col+1), self.length-7, self.width-3, msg, double=True)
+            edit = windows.Editor((self.row+5,self.col+1), self.length-row-1, self.width-3, msg, double=True)
             text = edit.gettext()
             if not edit.cancelled and text:
                 self.tasks = [t.strip() for t in text.split('-')[1:]]
@@ -1491,7 +1492,7 @@ class AddMenu(windows.Window):
 
     def footer(self):
         msg = f'<esc> to close'
-        self.win.addstr(self.length-2, self.width-len(msg)-3, msg)
+        self.win.addstr(self.length-1, self.width-len(msg)-3, msg)
 
     def displaystatus(self):
         self.win.addstr(1, int(self.width/2)-int(len(self.status)/2)-1, self.status)
@@ -1553,7 +1554,7 @@ class EditMenu(windows.Window):
                 msg = self.rawtasks
             else:
                 msg = '- '
-            edit = windows.Editor((self.row+row,self.col+col), self.length-row-2, self.width-3, msg, double=True)
+            edit = windows.Editor((self.row+row,self.col+col), self.length-row-1, self.width-3, msg, double=True)
             text = edit.gettext()
             if not edit.cancelled:
                 if text:
@@ -1596,7 +1597,7 @@ class EditMenu(windows.Window):
 
     def displaywindow(self):
         self.win.erase()
-        curses.textpad.rectangle(self.win, 0, 0, self.length-2, self.width-2)
+        curses.textpad.rectangle(self.win, 0, 0, self.length-1, self.width-2)
         self.header()
         self.footer()
         highlight = True if self.status == MenuState.SELECTDATE else False
@@ -1627,7 +1628,7 @@ class EditMenu(windows.Window):
 
     def footer(self):
         msg = f'<esc> to close'
-        self.win.addstr(self.length-2, self.width-len(msg)-3, msg)
+        self.win.addstr(self.length-1, self.width-len(msg)-3, msg)
     
     def header(self):
         self.win.addstr(1, 2, f'Edit Tasks')
@@ -1752,22 +1753,22 @@ class TinTask(windows.Window):
         elif ch == ord('a'):
             return AddMenu(self.erow+1,
                            0,
-                           self.length-self.erow,
+                           self.length-self.erow-1,
                            self.width), windows.Waction.PUSH
         elif ch == ord('e'):
             return EditMenu(self.erow+1,
                             0,
-                            self.length-self.erow,
+                            self.length-self.erow-1,
                             self.width), windows.Waction.PUSH
         elif ch == ord('m'):
             return Mail(self.erow+1,
                         0,
-                        self.length-self.erow,
+                        self.length-self.erow-1,
                         self.width), windows.Waction.PUSH
         elif ch == ord('x'):
             return Options(self.erow+1,
                            0,
-                           self.length-self.erow,
+                           self.length-self.erow-1,
                            self.width), windows.Waction.PUSH
         return None, None
 
