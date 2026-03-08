@@ -33,3 +33,7 @@ Lightweight, command line task tracking tool
 - Configurable report format that can be automatically sent in an email
 
 ![report](images/report.png)
+
+
+### Build it Yourself
+- `pyinstaller --onefile main.py --icon=images/icon.png --name=tintask.exe`
