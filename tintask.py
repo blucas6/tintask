@@ -55,7 +55,7 @@ Weekly Status Report
 Accomplishments:
 __TASKS__ __SFILTER__ notag:meeting __EFILTER__
 Key Dates:
-__TASKS__ __SFILTER__ tag:meeting,tags:0 __EFILTER__
+__TASKS__ __SFILTER__ tag:meeting|showtags:0 __EFILTER__
 Have a good weekend!
 Name
 """.strip()
@@ -119,31 +119,32 @@ class ReportData:
             if ReportKeys.TASKS in line:
                 if ReportKeys.SFORM in line and ReportKeys.EFORM in line:
                     format,line = self.getsetting(line, ReportKeys.SFORM, ReportKeys.EFORM)
-                    for prop in format.split(','):
+                    for prop in format.split('|'):
                         if 'tag' in prop:
                             tagform = prop.replace("'", '')
                         elif 'task' in prop:
                             taskform = prop.replace("'", '')
                 if ReportKeys.SFILTER in line and ReportKeys.EFILTER in line:
                     usefilter,line = self.getsetting(line, ReportKeys.SFILTER, ReportKeys.EFILTER)
-                    for mfilter in usefilter.split(','):
+                    for mfilter in usefilter.split('|'):
+                        windows.Logger.log(f'mfilter: {mfilter}')
                         prop,text = mfilter.split(':')
                         if prop == 'tag':
                             tagfilter = str(prop)
-                            tagtext = str(text)
+                            taglist = str(text).split(',')
                         elif prop == 'notag':
                             tagfilter = str(prop)
-                            tagtext = str(text)
-                        elif prop == 'tags':
+                            taglist = str(text).split(',')
+                        elif prop == 'showtags':
                             showtags = bool(int(text))
-                windows.Logger.log(f'tagfilter: {tagfilter} {showtags}')
+                windows.Logger.log(f'tagfilter: {tagfilter} {taglist}')
                 line = line.replace(ReportKeys.TASKS, '')
                 for tag,tasks in self.tasks.items():
                     if tagfilter == 'tag':
-                        if tag != tagtext:
+                        if tag not in taglist:
                             continue
                     elif tagfilter == 'notag':
-                        if tag == tagtext:
+                        if tag in taglist:
                             continue
                     if showtags:
                         if tag != Database.NULL_TAG:
