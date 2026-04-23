@@ -95,6 +95,40 @@ class ExcelReportData:
         self.mailto = ''
         self.loadreport()
 
+    def getcellstyle(self, cell):
+        return {
+            'font': copy.copy(cell.font),
+            'fill': copy.copy(cell.fill),
+            'alignment': copy.copy(cell.alignment),
+            'border': copy.copy(cell.border),
+            'protection': copy.copy(cell.protection),
+            'number_format': copy.copy(cell.number_format),
+        }
+    
+    def applycellstyle(self, cell, style):
+        cell.font = style['font']
+        cell.fill = style['fill']
+        cell.alignment = style['alignment']
+        cell.border = style['border']
+        cell.protection = style['protection']
+        cell.number_format = style['number_format']
+    
+    def clearcellstyle(self, cell):
+        cell.font = openpyxl.styles.Font()
+        cell.fill = openpyxl.styles.Fill()
+        cell.alignment = openpyxl.styles.Alignment()
+        cell.border = openpyxl.styles.Border()
+        cell.protection = openpyxl.styles.Protection()
+        cell.number_format = 'General'
+
+    def saveandclearcellstyles(self, ws, maxrow):
+        styles = {}
+        for row in ws.iter_rows(min_row=1, max_row=maxrow):
+            for cell in row:
+                styles[(cell.row, cell.column)] = self.getcellstyle(cell)
+                self.clearcellstyle(cell)
+        return styles
+
     def getsetting(self, line, startkey, endkey):
         sx = line.find(startkey) + len(startkey)
         ex = line.find(endkey)
@@ -104,47 +138,10 @@ class ExcelReportData:
         line = line.replace(setting, '')
         return setting, line
     
-    def movecellstyle(self, ws, rowix, colix):
-        source = ws.cell(row=rowix, column=colix)
-        if source.has_style:
-            dest = ws.cell(row=rowix+1, column=colix)
-            dest.font = copy.copy(source.font)
-            dest.border = copy.copy(source.border)
-            if (isinstance(source.fill, openpyxl.styles.PatternFill) or
-                isinstance(source.fill, openpyxl.styles.GradientFill)):
-                dest.fill = copy.copy(source.fill)
-            else:
-                dest.fill = copy.copy(openpyxl.styles.PatternFill())
-            dest.number_format = copy.copy(source.number_format)
-            dest.protection = copy.copy(source.protection)
-            dest.alignment = copy.copy(source.alignment)
-    
     def unmergecells(self, ws):
-        merged = []
-        for r in ws.merged_cells.ranges:
-            topleftcell = ws.cell(row=r.min_row, column=r.min_col)
-            merged.append({
-                'range': str(r),
-                'font': copy.copy(topleftcell.font),
-                'fill': copy.copy(topleftcell.fill),
-                'alignment': copy.copy(topleftcell.alignment),
-                'border': copy.copy(topleftcell.border),
-                'protection': copy.copy(topleftcell.protection),
-                'number_format': copy.copy(topleftcell.number_format),
-                'value': copy.copy(topleftcell.value),
-            })
-        for r in list(ws.merged_cells.ranges):
-            ws.unmerge_cells(str(r))
-        for entry in merged:
-            cr = openpyxl.worksheet.cell_range.CellRange(entry['range'])
-            for col in range(cr.min_col, cr.max_col+1):
-                cell = ws.cell(row=cr.min_row, column=col)
-                cell.font = openpyxl.styles.Font()
-                cell.fill = openpyxl.styles.Fill()
-                cell.alignment = openpyxl.styles.Alignment()
-                cell.border = openpyxl.styles.Border()
-                cell.protection = openpyxl.styles.Protection()
-                cell.number_format = 'General'
+        merged = [str(r) for f in ws.merged_cells.ranges]
+        for r in merged:
+            ws.unmerge_cells(r)
         return merged
     
     def shiftrows(self, ws, mergedcells, targetrow, maxrow, maxcol, direction):
@@ -158,9 +155,6 @@ class ExcelReportData:
             startrow = targetrow
             endrow = maxrow
             step = 1
-        for rowix in range(startrow, endrow, step):
-            for colix in range(1, maxcol):
-                self.movecellstyle(ws, rowix, colix)
 
         for mrange in mergedcells:
             windows.Logger.log(f'Remerge: {mrange["range"]}')
@@ -186,13 +180,7 @@ class ExcelReportData:
 
             ws.merge_cells(str(newcr))
             windows.Logger.log(f'Reapplying cells: {newcr.min_row} {newcr.min_col}')
-            topleftcell = ws.cell(row=newcr.min_row, column=newcr.min_col)
-            topleftcell.font = mrange['font']
-            topleftcell.fill = mrange['fill']
-            topleftcell.alignment = mrange['alignment']
-            topleftcell.border = mrange['border']
-            topleftcell.protection = mrange['protection']
-            topleftcell.number_format = mrange['number_format']
+
     
     def deleterow(self, ws, targetrow, maxrow, maxcol):
         mergedcells = self.unmergecells(ws)
