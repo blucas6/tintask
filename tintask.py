@@ -1,4 +1,5 @@
 import calendar
+import copy
 import shutil
 import time
 import subprocess
@@ -15,6 +16,9 @@ import sys
 
 if sys.platform == 'win32':
     import win32com.client
+    import openpyxl
+    import openpyxl.worksheet.cell_range
+    import openpyxl.styles
 
 __VERSION__ = '1.0.0'
 
@@ -64,12 +68,231 @@ class ReportKeys():
     MAILTO = '__MAILTO__'
     SUBJECT = '__SUBJECT__'
     SWEEK = '__SWEEK__'
+    '''Substitutes the start of the week day'''
     EWEEK = '__EWEEK__'
+    '''Substitutes the end of the week day'''
     TASKS = '__TASKS__'
+    '''Accesses all tasks done this week, accepts additional formatting'''
     SFILTER = '__SFILTER__'
+    '''Begin filter for tasks'''
     EFILTER = '__EFILTER__'
+    '''End filter for tasks'''
     SFORM = '__SFORM__'
+    '''Start of specifying task bullet form'''
     EFORM = '__EFORM__'
+    '''End of specifying task bullet form'''
+    ALLOWTAGS = 'tag'
+    DISALLOWTAGS = 'notag'
+    SHOWTAGS = 'showtags'
+    SHOWTASKS = 'showtasks'
+
+class ExcelReportData:
+    def __init__(self, tasks, sweek, eweek, exportfile):
+        self.tasks = tasks
+        self.exportfile = exportfile
+        self.sweek = sweek
+        self.eweek = eweek
+        self.mailto = ''
+        self.loadreport()
+
+    def getsetting(self, line, startkey, endkey):
+        sx = line.find(startkey) + len(startkey)
+        ex = line.find(endkey)
+        setting = line[sx:ex].strip()
+        line = line.replace(startkey, '')
+        line = line.replace(endkey, '')
+        line = line.replace(setting, '')
+        return setting, line
+    
+    def movecellstyle(self, ws, rowix, colix):
+        source = ws.cell(row=rowix, column=colix)
+        if source.has_style:
+            dest = ws.cell(row=rowix+1, column=colix)
+            dest.font = copy.copy(source.font)
+            dest.border = copy.copy(source.border)
+            if (isinstance(source.fill, openpyxl.styles.PatternFill) or
+                isinstance(source.fill, openpyxl.styles.GradientFill)):
+                dest.fill = copy.copy(source.fill)
+            else:
+                dest.fill = copy.copy(openpyxl.styles.PatternFill())
+            dest.number_format = copy.copy(source.number_format)
+            dest.protection = copy.copy(source.protection)
+            dest.alignment = copy.copy(source.alignment)
+    
+    def unmergecells(self, ws):
+        merged = []
+        for r in ws.merged_cells.ranges:
+            topleftcell = ws.cell(row=r.min_row, column=r.min_col)
+            merged.append({
+                'range': str(r),
+                'font': copy.copy(topleftcell.font),
+                'fill': copy.copy(topleftcell.fill),
+                'alignment': copy.copy(topleftcell.alignment),
+                'border': copy.copy(topleftcell.border),
+                'protection': copy.copy(topleftcell.protection),
+                'number_format': copy.copy(topleftcell.number_format),
+                'value': copy.copy(topleftcell.value),
+            })
+        for r in list(ws.merged_cells.ranges):
+            ws.unmerge_cells(str(r))
+        for entry in merged:
+            cr = openpyxl.worksheet.cell_range.CellRange(entry['range'])
+            for col in range(cr.min_col, cr.max_col+1):
+                cell = ws.cell(row=cr.min_row, column=col)
+                cell.font = openpyxl.styles.Font()
+                cell.fill = openpyxl.styles.Fill()
+                cell.alignment = openpyxl.styles.Alignment()
+                cell.border = openpyxl.styles.Border()
+                cell.protection = openpyxl.styles.Protection()
+                cell.number_format = 'General'
+        return merged
+    
+    def shiftrows(self, ws, mergedcells, targetrow, maxrow, maxcol, direction):
+        # shift down, bottom -> top
+        if direction == 'down':
+            startrow = maxrow
+            endrow = targetrow
+            step = -1
+        # shift up, top -> bottom
+        elif direction == 'up':
+            startrow = targetrow
+            endrow = maxrow
+            step = 1
+        for rowix in range(startrow, endrow, step):
+            for colix in range(1, maxcol):
+                self.movecellstyle(ws, rowix, colix)
+
+        for mrange in mergedcells:
+            windows.Logger.log(f'Remerge: {mrange["range"]}')
+            cr = openpyxl.worksheet.cell_range.CellRange(mrange['range'])
+            # current merged row is above target row - position has not changed
+            if cr.min_row < targetrow:
+                windows.Logger.log(f'merge was before target row lol {cr.min_row}')
+                newcr = cr
+            # current merged row is below target row - shift position
+            elif cr.min_row > targetrow:
+                newcr = openpyxl.worksheet.cell_range.CellRange(
+                    min_row=cr.min_row-step, max_row=cr.max_row-step,
+                    min_col=cr.min_col, max_col=cr.max_col
+                )
+            elif direction == 'down' and cr.min_row == targetrow:
+                windows.Logger.log(f'on same row: {cr.min_row} {step}')
+                newcr = openpyxl.worksheet.cell_range.CellRange(
+                    min_row=cr.min_row-step, max_row=cr.max_row-step,
+                    min_col=cr.min_col, max_col=cr.max_col
+                )
+            else:
+                continue
+
+            ws.merge_cells(str(newcr))
+            windows.Logger.log(f'Reapplying cells: {newcr.min_row} {newcr.min_col}')
+            topleftcell = ws.cell(row=newcr.min_row, column=newcr.min_col)
+            topleftcell.font = mrange['font']
+            topleftcell.fill = mrange['fill']
+            topleftcell.alignment = mrange['alignment']
+            topleftcell.border = mrange['border']
+            topleftcell.protection = mrange['protection']
+            topleftcell.number_format = mrange['number_format']
+    
+    def deleterow(self, ws, targetrow, maxrow, maxcol):
+        mergedcells = self.unmergecells(ws)
+        ws.delete_rows(targetrow)
+        self.shiftrows(ws, mergedcells, targetrow, maxrow, maxcol, 'up')
+    
+    def insertrow(self, ws, targetrow, maxrow, maxcol):
+        mergedcells = self.unmergecells(ws)
+        ws.insert_rows(targetrow)
+        windows.Logger.log(f'Inserted row at: {targetrow}')
+        self.shiftrows(ws, mergedcells, targetrow, maxrow, maxcol, 'down')
+
+    def loadreport(self):
+        tagfilter = ''
+        taglist = []
+        showtags = True
+        showtasks = True
+        windows.Logger.log(f'Loading excel report')
+        try:
+            wb = openpyxl.load_workbook(self.exportfile)
+            ws = wb.active
+            rowix = 0
+            maxrow = 40
+            maxcol = 12
+
+            delete = []
+            while rowix < maxrow:
+                rowix += 1
+                for colix in range(1, maxcol):
+                    cell = ws.cell(row=rowix, column=colix).value
+                    if not cell:
+                        continue
+                    windows.Logger.log(f'Row:{rowix} Col:{colix} Cell: {cell}')
+                    cell = cell.replace(ReportKeys.SWEEK, self.sweek)
+                    cell = cell.replace(ReportKeys.EWEEK, self.eweek)
+                    ws.cell(row=rowix, column=colix).value = cell
+                    if ReportKeys.MAILTO in cell:
+                        self.mailto = cell.replace(ReportKeys.MAILTO, '')
+                        #delete.append(rowix)
+                        self.deleterow(ws, rowix, maxrow, maxcol)
+                        rowix -= 1
+                        break
+                    elif ReportKeys.SUBJECT in cell:
+                        self.subject = cell.replace(ReportKeys.SUBJECT, '')
+                        #delete.append(rowix)
+                        self.deleterow(ws, rowix, maxrow, maxcol)
+                        rowix -= 1
+                        break
+                    elif ReportKeys.TASKS in cell:
+                        if ReportKeys.SFILTER in cell and ReportKeys.EFILTER in cell:
+                            filters,cell= self.getsetting(cell, ReportKeys.SFILTER, ReportKeys.EFILTER)
+                            for filter in filters.split('|'):
+                                prop,text = filter.split(':')
+                                if prop == ReportKeys.ALLOWTAGS:
+                                    tagfilter = str(prop)
+                                    taglist = str(text).split(',')
+                                elif prop == ReportKeys.DISALLOWTAGS:
+                                    tagfilter = str(prop)
+                                    taglist = str(text).split(',')
+                                elif prop == ReportKeys.SHOWTAGS:
+                                    showtags = bool(int(text))
+                                elif prop == ReportKeys.SHOWTASKS:
+                                    showtasks = bool(int(text))
+                        cell = cell.replace(ReportKeys.TASKS, '')
+                        windows.Logger.log(f'Tagfilter: {tagfilter} {taglist}')
+                        windows.Logger.log(f'Showtags: {showtags}')
+                        windows.Logger.log(f'Showtasks: {showtasks}')
+                        ws.cell(row=rowix, column=colix).value = cell
+                        for tag,tasks in self.tasks.items():
+                            cell = ''
+                            windows.Logger.log(f'Tag: {tag} tasks:{tasks}')
+                            if tagfilter == ReportKeys.ALLOWTAGS:
+                                if tag not in taglist:
+                                    continue
+                            elif tagfilter == ReportKeys.DISALLOWTAGS:
+                                if tag in taglist:
+                                    continue
+                            if showtags:
+                                if tag != Database.NULL_TAG:
+                                    cell += tag
+                            if showtasks:
+                                for task in tasks:
+                                    cell += task + ','
+                            windows.Logger.log(f'Row: {rowix} {cell}')
+                            ws.cell(row=rowix, column=colix).value = cell
+                            self.insertrow(ws, rowix+1, maxrow, maxcol)
+                            rowix += 1
+            
+            '''
+            delete.reverse()
+            windows.Logger.log(f'Delete: {delete}')
+            for row in delete:
+                self.deleterow(ws, row, maxrow, maxcol)
+                '''
+
+        except Exception as ex:
+            windows.Logger.log(f'Excel report error: {ex}')
+
+        wb.save(self.exportfile)
+        wb.close()
 
 class ReportData:
     def __init__(self, tasks, start, end, prefile):
@@ -183,7 +406,8 @@ class Options(windows.Window):
     def draw(self):
         self.displaywindow()
         er,_ = windows.option(self.win, 'G', 'Generate report preference file', (3,2))
-        _,_ = windows.option(self.win, 'E', 'Edit report preference file', (er,2))
+        er,_ = windows.option(self.win, 'E', 'Edit report preference file', (er,2))
+        _,_ = windows.option(self.win, 'X', 'Export to Excel format', (er,2))
 
     def input(self, ch):
         if ch == curses.ascii.ESC:
@@ -201,6 +425,9 @@ class Options(windows.Window):
                     self.win.addstr(6, 2, 'Failed to open report preference file!')
             else:
                 self.win.addstr(6, 2, 'Currently unavailable for non Windows Operating Systems')
+        elif ch == ord('x'):
+            windows.Logger.log(f'EXPORT TO EXCEL')
+            excelreport = Manager.loadreportdata(excel=True)
 
         return None,None
 
@@ -882,6 +1109,8 @@ class Manager:
     viewingdate = datetime.datetime.now()
     reportprefcontents = ''
     reportpreffile = 'report.pref'
+    excelpreffile = 'excelpref.xlsx'
+    exceloutputfile = 'exceloutput.xlsx'
 
     @staticmethod
     def editreportpref():
@@ -933,12 +1162,15 @@ class Manager:
         return am
 
     @staticmethod
-    def loadreportdata():
+    def loadreportdata(excel=False):
         mytasks = Manager.gettasks(Manager.viewingdate, groupby='tag')
         windows.Logger.log(f'report tasks {mytasks}')
         start,end = Manager.getweek(Manager.viewingdate)
         start = Manager.datetobriefformat(start)
         end = Manager.datetobriefformat(end)
+        if excel:
+            shutil.copy(Manager.excelpreffile, Manager.exceloutputfile)
+            return ExcelReportData(mytasks, start, end, Manager.exceloutputfile)
         return ReportData(mytasks, start, end, Manager.reportprefcontents)
 
     @staticmethod
@@ -1141,7 +1373,6 @@ class Manager:
             tag = ','.join([t[0] for t in tags[id]])
             # check if date has been added
             if date in library:
-                windows.Logger.log(f'tag {tag} been added')
                 # if tag has been added
                 if tag in library[date]:
                     # append the newest task

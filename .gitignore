@@ -14,3 +14,4 @@ build/
 dist/
 *.spec
 Schedule.xml
+*.xlsx
