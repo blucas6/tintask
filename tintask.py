@@ -65,6 +65,7 @@ Name
 """.strip()
 
 class ReportKeys():
+    FILENAME = '__FILENAME__'
     MAILTO = '__MAILTO__'
     SUBJECT = '__SUBJECT__'
     SWEEK = '__SWEEK__'
@@ -96,7 +97,17 @@ class ExcelReportData:
         self.sweek = sweek
         self.eweek = eweek
         self.mailto = ''
+        self.subject = ''
+        self.filename = ''
+
         self.loadreport()
+        windows.Logger.log(f'Excel Report: {self.mailto}')
+        windows.Logger.log(f'Excel Report: {self.subject}')
+        windows.Logger.log(f'Excel Report: {self.filename}')
+
+        if self.filename:
+            shutil.copy(Manager.exceloutputfile, self.filename)
+            os.remove(Manager.exceloutputfile)
 
     def getcellstyle(self, cell):
         return {
@@ -219,7 +230,12 @@ class ExcelReportData:
                     cell = cell.replace(ReportKeys.SWEEK, self.sweek)
                     cell = cell.replace(ReportKeys.EWEEK, self.eweek)
                     ws.cell(row=rowix, column=colix).value = cell
-                    if ReportKeys.MAILTO in cell:
+                    if ReportKeys.FILENAME in cell:
+                        self.filename = cell.replace(ReportKeys.FILENAME, '')
+                        self.deleterow(ws, rowix)
+                        rowix -= 1
+                        break
+                    elif ReportKeys.MAILTO in cell:
                         self.mailto = cell.replace(ReportKeys.MAILTO, '')
                         self.deleterow(ws, rowix)
                         rowix -= 1
