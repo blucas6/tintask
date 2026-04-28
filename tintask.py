@@ -121,11 +121,12 @@ class ExcelReportData:
         cell.protection = openpyxl.styles.Protection()
         cell.number_format = 'General'
 
-    def saveandclearcellstyles(self, ws, maxrow):
+    def saveandclearcellstyles(self, ws, targetrow, maxrow, maxcol):
         styles = {}
-        for row in ws.iter_rows(min_row=1, max_row=maxrow):
+        for row in ws.iter_rows(min_row=targetrow, max_row=maxrow, max_col=maxcol):
             for cell in row:
                 styles[(cell.row, cell.column)] = self.getcellstyle(cell)
+                style = styles[(cell.row,cell.column)]['border']
                 self.clearcellstyle(cell)
         return styles
 
@@ -139,59 +140,63 @@ class ExcelReportData:
         return setting, line
     
     def unmergecells(self, ws):
-        merged = [str(r) for f in ws.merged_cells.ranges]
-        for r in merged:
+        merges = [str(r) for r in ws.merged_cells.ranges]
+        for r in merges:
             ws.unmerge_cells(r)
-        return merged
+        return merges
     
-    def shiftrows(self, ws, mergedcells, targetrow, maxrow, maxcol, direction):
-        # shift down, bottom -> top
-        if direction == 'down':
-            startrow = maxrow
-            endrow = targetrow
-            step = -1
-        # shift up, top -> bottom
-        elif direction == 'up':
-            startrow = targetrow
-            endrow = maxrow
-            step = 1
-
+    def applystylestorows(self, ws, styles, targetrow, maxrow, maxcol, step):
+        for row in ws.iter_rows(min_row=targetrow, max_row=maxrow, max_col=maxcol):
+            for cell in row:
+                if (cell.row+step, cell.column) in styles:
+                    self.applycellstyle(cell, styles[(cell.row+step,cell.column)])
+    
+    def remergecells(self, ws, mergedcells, targetrow, step):
         for mrange in mergedcells:
-            windows.Logger.log(f'Remerge: {mrange["range"]}')
-            cr = openpyxl.worksheet.cell_range.CellRange(mrange['range'])
+            cr = openpyxl.worksheet.cell_range.CellRange(mrange)
             # current merged row is above target row - position has not changed
             if cr.min_row < targetrow:
-                windows.Logger.log(f'merge was before target row lol {cr.min_row}')
                 newcr = cr
             # current merged row is below target row - shift position
-            elif cr.min_row > targetrow:
-                newcr = openpyxl.worksheet.cell_range.CellRange(
-                    min_row=cr.min_row-step, max_row=cr.max_row-step,
-                    min_col=cr.min_col, max_col=cr.max_col
-                )
-            elif direction == 'down' and cr.min_row == targetrow:
-                windows.Logger.log(f'on same row: {cr.min_row} {step}')
+            elif cr.min_row >= targetrow:
                 newcr = openpyxl.worksheet.cell_range.CellRange(
                     min_row=cr.min_row-step, max_row=cr.max_row-step,
                     min_col=cr.min_col, max_col=cr.max_col
                 )
             else:
                 continue
-
             ws.merge_cells(str(newcr))
-            windows.Logger.log(f'Reapplying cells: {newcr.min_row} {newcr.min_col}')
-
     
-    def deleterow(self, ws, targetrow, maxrow, maxcol):
+    def shiftrows(self, ws, mergedcells, styles, targetrow, maxrow, maxcol, direction):
+        if direction == 'up':
+            targetrowshift = -1
+            step = 1
+        elif direction == 'down':
+            targetrowshift = 0
+            step = -1
+        else:
+            return
+        self.applystylestorows(ws, styles, targetrow+targetrowshift, maxrow, maxcol, step)
+        self.remergecells(ws, mergedcells, targetrow, step)
+    
+    def deleterow(self, ws, targetrow):
+        styles = self.saveandclearcellstyles(ws, targetrow, ws.max_row, ws.max_column)
         mergedcells = self.unmergecells(ws)
         ws.delete_rows(targetrow)
-        self.shiftrows(ws, mergedcells, targetrow, maxrow, maxcol, 'up')
+        self.shiftrows(ws, mergedcells, styles, targetrow, ws.max_row, ws.max_column, 'up')
     
-    def insertrow(self, ws, targetrow, maxrow, maxcol):
+    def insertrow(self, ws, targetrow):
+        styles = self.saveandclearcellstyles(ws, targetrow, ws.max_row, ws.max_column)
         mergedcells = self.unmergecells(ws)
+        windows.Logger.log(f'Inserted row at: {targetrow+1}')
         ws.insert_rows(targetrow)
-        windows.Logger.log(f'Inserted row at: {targetrow}')
-        self.shiftrows(ws, mergedcells, targetrow, maxrow, maxcol, 'down')
+        self.shiftrows(ws, mergedcells, styles, targetrow, ws.max_row, ws.max_column, 'down')
+        # apply the same merge and styles to the new row
+        self.applystylestorows(ws, styles, targetrow, targetrow, ws.max_column, 1)
+        for mrange in mergedcells:
+            cr = openpyxl.worksheet.cell_range.CellRange(mrange)
+            if cr.min_row == targetrow:
+                ws.merge_cells(str(cr))
 
     def loadreport(self):
         tagfilter = ''
@@ -203,13 +208,9 @@ class ExcelReportData:
             wb = openpyxl.load_workbook(self.exportfile)
             ws = wb.active
             rowix = 0
-            maxrow = 40
-            maxcol = 12
-
-            delete = []
-            while rowix < maxrow:
+            while rowix < ws.max_row:
                 rowix += 1
-                for colix in range(1, maxcol):
+                for colix in range(1, ws.max_column):
                     cell = ws.cell(row=rowix, column=colix).value
                     if not cell:
                         continue
@@ -219,14 +220,12 @@ class ExcelReportData:
                     ws.cell(row=rowix, column=colix).value = cell
                     if ReportKeys.MAILTO in cell:
                         self.mailto = cell.replace(ReportKeys.MAILTO, '')
-                        #delete.append(rowix)
-                        self.deleterow(ws, rowix, maxrow, maxcol)
+                        self.deleterow(ws, rowix)
                         rowix -= 1
                         break
                     elif ReportKeys.SUBJECT in cell:
                         self.subject = cell.replace(ReportKeys.SUBJECT, '')
-                        #delete.append(rowix)
-                        self.deleterow(ws, rowix, maxrow, maxcol)
+                        self.deleterow(ws, rowix)
                         rowix -= 1
                         break
                     elif ReportKeys.TASKS in cell:
@@ -265,17 +264,10 @@ class ExcelReportData:
                                 for task in tasks:
                                     cell += task + ','
                             windows.Logger.log(f'Row: {rowix} {cell}')
+                            self.insertrow(ws, rowix)
                             ws.cell(row=rowix, column=colix).value = cell
-                            self.insertrow(ws, rowix+1, maxrow, maxcol)
                             rowix += 1
             
-            '''
-            delete.reverse()
-            windows.Logger.log(f'Delete: {delete}')
-            for row in delete:
-                self.deleterow(ws, row, maxrow, maxcol)
-                '''
-
         except Exception as ex:
             windows.Logger.log(f'Excel report error: {ex}')
 
