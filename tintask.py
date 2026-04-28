@@ -209,6 +209,7 @@ class ExcelReportData:
             ws = wb.active
             rowix = 0
             while rowix < ws.max_row:
+                StatusBar.update(rowix/ws.max_row*100, 'Generating Excel report ...')
                 rowix += 1
                 for colix in range(1, ws.max_column):
                     cell = ws.cell(row=rowix, column=colix).value
@@ -284,9 +285,10 @@ class ExcelReportData:
             
         except Exception as ex:
             windows.Logger.log(f'Excel report error: {ex}')
-
-        wb.save(self.exportfile)
-        wb.close()
+            raise
+        finally:
+            wb.save(self.exportfile)
+            wb.close()
 
 class ReportData:
     def __init__(self, tasks, start, end, prefile):
@@ -382,6 +384,16 @@ class ReportData:
 class Options(windows.Window):
     def __init__(self, row, col, length, width):
         super().__init__(row, col, length, width)
+        self.usermsg = ''
+
+    def showusermsg(self):
+        tab = 2
+        if self.usermsg:
+            self.usermsg = 'Alert: ' + self.usermsg
+            splice,am = Manager.splice(self.usermsg, self.width-2-tab)
+            for ix,txt in enumerate(splice):
+                txt = txt.strip()
+                self.win.addstr(7+ix, 2, txt)
 
     def header(self):
         self.win.addstr(1, 2, f'Options')
@@ -396,6 +408,8 @@ class Options(windows.Window):
         curses.textpad.rectangle(self.win, 0, 0, self.length-1, self.width-2)
         self.header()
         self.footer()
+        self.showusermsg()
+        self.usermsg = ''
 
     def draw(self):
         self.displaywindow()
@@ -407,7 +421,7 @@ class Options(windows.Window):
         if ch == curses.ascii.ESC:
             return None,windows.Waction.POP
         elif ch == ord('g'):
-            StatusBar.update(10, 'Generating report preference file...')
+            StatusBar.update(10, 'Generating report preference file ...')
             curses.napms(100)
             Manager.writereportpref()
             Manager.readreportpref()
@@ -421,7 +435,13 @@ class Options(windows.Window):
                 self.win.addstr(6, 2, 'Currently unavailable for non Windows Operating Systems')
         elif ch == ord('x'):
             windows.Logger.log(f'EXPORT TO EXCEL')
-            excelreport = Manager.loadreportdata(excel=True)
+            try:
+                excelreport = Manager.loadreportdata(useexcel=True)
+            except PermissionError:
+                windows.Logger.log(f'Failed to open Excel report output file!')
+                self.usermsg='Failed to create Excel report. Make sure the output file is closed.'
+            except:
+                self.usermsg = 'Failed to create the Excel report. Check the log for more information.'
 
         return None,None
 
@@ -1156,13 +1176,13 @@ class Manager:
         return am
 
     @staticmethod
-    def loadreportdata(excel=False):
+    def loadreportdata(useexcel=False):
         mytasks = Manager.gettasks(Manager.viewingdate, groupby='tag')
         windows.Logger.log(f'report tasks {mytasks}')
         start,end = Manager.getweek(Manager.viewingdate)
         start = Manager.datetobriefformat(start)
         end = Manager.datetobriefformat(end)
-        if excel:
+        if useexcel:
             shutil.copy(Manager.excelpreffile, Manager.exceloutputfile)
             return ExcelReportData(mytasks, start, end, Manager.exceloutputfile)
         return ReportData(mytasks, start, end, Manager.reportprefcontents)
