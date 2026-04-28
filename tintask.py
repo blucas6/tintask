@@ -434,14 +434,17 @@ class Options(windows.Window):
             else:
                 self.win.addstr(6, 2, 'Currently unavailable for non Windows Operating Systems')
         elif ch == ord('x'):
-            windows.Logger.log(f'EXPORT TO EXCEL')
-            try:
-                excelreport = Manager.loadreportdata(useexcel=True)
-            except PermissionError:
-                windows.Logger.log(f'Failed to open Excel report output file!')
-                self.usermsg='Failed to create Excel report. Make sure the output file is closed.'
-            except:
-                self.usermsg = 'Failed to create the Excel report. Check the log for more information.'
+            if not Manager.excelprefexists():
+                self.usermsg = f"No Excel preference file found. Create '{Manager.excelpreffile}' first."
+            else:
+                windows.Logger.log(f'EXPORT TO EXCEL')
+                try:
+                    excelreport = Manager.loadreportdata(useexcel=True)
+                except PermissionError:
+                    windows.Logger.log(f'Failed to open Excel report output file!')
+                    self.usermsg='Failed to create Excel report. Make sure the output file is closed.'
+                except:
+                    self.usermsg = 'Failed to create the Excel report. Check the log for more information.'
 
         return None,None
 
@@ -1125,6 +1128,12 @@ class Manager:
     reportpreffile = 'report.pref'
     excelpreffile = 'excelpref.xlsx'
     exceloutputfile = 'exceloutput.xlsx'
+
+    @staticmethod
+    def excelprefexists():
+        if os.path.exists(Manager.excelpreffile):
+            return True
+        return False
 
     @staticmethod
     def editreportpref():
