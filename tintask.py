@@ -85,6 +85,9 @@ class ReportKeys():
     DISALLOWTAGS = 'notag'
     SHOWTAGS = 'showtags'
     SHOWTASKS = 'showtasks'
+    EXCELROWS = 'excel'
+    EXCELGROW = 'grow'
+    EXCELINSERT = 'insert'
 
 class ExcelReportData:
     def __init__(self, tasks, sweek, eweek, exportfile):
@@ -180,15 +183,16 @@ class ExcelReportData:
         self.remergecells(ws, mergedcells, targetrow, step)
     
     def deleterow(self, ws, targetrow):
+        windows.Logger.log(f'Excel Row Delete: {targetrow}')
         styles = self.saveandclearcellstyles(ws, targetrow, ws.max_row, ws.max_column)
         mergedcells = self.unmergecells(ws)
         ws.delete_rows(targetrow)
         self.shiftrows(ws, mergedcells, styles, targetrow, ws.max_row, ws.max_column, 'up')
     
     def insertrow(self, ws, targetrow):
+        windows.Logger.log(f'Excel Row Insert: {targetrow}')
         styles = self.saveandclearcellstyles(ws, targetrow, ws.max_row, ws.max_column)
         mergedcells = self.unmergecells(ws)
-        windows.Logger.log(f'Inserted row at: {targetrow+1}')
         ws.insert_rows(targetrow)
         self.shiftrows(ws, mergedcells, styles, targetrow, ws.max_row, ws.max_column, 'down')
         # apply the same merge and styles to the new row
@@ -199,10 +203,6 @@ class ExcelReportData:
                 ws.merge_cells(str(cr))
 
     def loadreport(self):
-        tagfilter = ''
-        taglist = []
-        showtags = True
-        showtasks = True
         windows.Logger.log(f'Loading excel report')
         try:
             wb = openpyxl.load_workbook(self.exportfile)
@@ -229,8 +229,15 @@ class ExcelReportData:
                         rowix -= 1
                         break
                     elif ReportKeys.TASKS in cell:
+                        tagfilter = ''
+                        taglist = []
+                        showtags = True
+                        showtasks = True
+                        excelbehavior = ''
                         if ReportKeys.SFILTER in cell and ReportKeys.EFILTER in cell:
-                            filters,cell= self.getsetting(cell, ReportKeys.SFILTER, ReportKeys.EFILTER)
+                            filters,cell = self.getsetting(cell,
+                                                          ReportKeys.SFILTER,
+                                                          ReportKeys.EFILTER)
                             for filter in filters.split('|'):
                                 prop,text = filter.split(':')
                                 if prop == ReportKeys.ALLOWTAGS:
@@ -243,11 +250,16 @@ class ExcelReportData:
                                     showtags = bool(int(text))
                                 elif prop == ReportKeys.SHOWTASKS:
                                     showtasks = bool(int(text))
+                                elif prop == ReportKeys.EXCELROWS:
+                                    excelbehavior = text 
+                        # clear format from sheet 
                         cell = cell.replace(ReportKeys.TASKS, '')
+                        ws.cell(row=rowix, column=colix).value = cell
                         windows.Logger.log(f'Tagfilter: {tagfilter} {taglist}')
                         windows.Logger.log(f'Showtags: {showtags}')
                         windows.Logger.log(f'Showtasks: {showtasks}')
-                        ws.cell(row=rowix, column=colix).value = cell
+                        windows.Logger.log(f'Excel: {excelbehavior}')
+                        taskrow = rowix
                         for tag,tasks in self.tasks.items():
                             cell = ''
                             windows.Logger.log(f'Tag: {tag} tasks:{tasks}')
@@ -261,12 +273,14 @@ class ExcelReportData:
                                 if tag != Database.NULL_TAG:
                                     cell += tag
                             if showtasks:
-                                for task in tasks:
-                                    cell += task + ','
-                            windows.Logger.log(f'Row: {rowix} {cell}')
-                            self.insertrow(ws, rowix)
-                            ws.cell(row=rowix, column=colix).value = cell
-                            rowix += 1
+                                for ix,task in enumerate(tasks):
+                                    cell += task
+                                    if ix != len(tasks)-1:
+                                        cell += ', '
+                            if excelbehavior == ReportKeys().EXCELGROW:
+                                self.insertrow(ws, taskrow)
+                            ws.cell(row=taskrow, column=colix).value = cell
+                            taskrow += 1
             
         except Exception as ex:
             windows.Logger.log(f'Excel report error: {ex}')
