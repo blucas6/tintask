@@ -106,6 +106,7 @@ class ExcelReportData:
         windows.Logger.log(f'Excel Report: {self.filename}')
 
         if self.filename:
+            self.filename = self.filename.replace('/', '.')
             shutil.copy(Manager.exceloutputfile, self.filename)
             os.remove(Manager.exceloutputfile)
 
