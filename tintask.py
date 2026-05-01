@@ -1167,13 +1167,15 @@ class Manager:
     
     @staticmethod
     def getworkingdirectory():
-        home = os.path.expanduser('~')
-        if sys.platform == 'win32':
-            path = os.path.join(home, os.environ['LOCALAPPDATA'], 'TinTask')
-        else:
-            path = os.path.join(home, '.local', 'share', 'tintask')
-        if not os.path.exists(path):
-            os.makedirs(path)
+        path = '.'
+        if InstallManager.filetype == 'executable':
+            home = os.path.expanduser('~')
+            if sys.platform == 'win32':
+                path = os.path.join(home, os.environ['LOCALAPPDATA'], 'TinTask')
+            else:
+                path = os.path.join(home, '.local', 'share', 'tintask')
+            if not os.path.exists(path):
+                os.makedirs(path)
         return path
 
     @staticmethod
