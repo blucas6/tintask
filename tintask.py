@@ -161,19 +161,21 @@ class ExcelReportData:
         return merges
     
     def applystylestorows(self, ws, styles, targetrow, maxrow, maxcol, step):
+        windows.Logger.log(f'Excel Applying Styles')
         for row in ws.iter_rows(min_row=targetrow, max_row=maxrow, max_col=maxcol):
             for cell in row:
                 if (cell.row+step, cell.column) in styles:
                     self.applycellstyle(cell, styles[(cell.row+step,cell.column)])
     
     def remergecells(self, ws, mergedcells, targetrow, step):
+        windows.Logger.log(f'Excel Remerging Cells')
         for mrange in mergedcells:
             cr = openpyxl.worksheet.cell_range.CellRange(mrange)
             # current merged row is above target row - position has not changed
             if cr.min_row < targetrow:
                 newcr = cr
             # current merged row is below target row - shift position
-            elif cr.min_row >= targetrow:
+            elif cr.min_row > targetrow:
                 newcr = openpyxl.worksheet.cell_range.CellRange(
                     min_row=cr.min_row-step, max_row=cr.max_row-step,
                     min_col=cr.min_col, max_col=cr.max_col
@@ -183,6 +185,7 @@ class ExcelReportData:
             ws.merge_cells(str(newcr))
     
     def shiftrows(self, ws, mergedcells, styles, targetrow, maxrow, maxcol, direction):
+        windows.Logger.log(f'Excel Shifting Rows {direction}')
         if direction == 'up':
             targetrowshift = -1
             step = 1
